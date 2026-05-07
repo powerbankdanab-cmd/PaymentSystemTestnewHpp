@@ -119,11 +119,24 @@ export function getStationConfigByCode(code: string): StationConfig | null {
   return null;
 }
 
+function getConfiguredStationCodes() {
+  const codes = new Set(Object.keys(STATION_NAMES));
+
+  for (const key of Object.keys(process.env)) {
+    const match = key.match(/^STATION_(\d+)_IMEI$/);
+    if (match?.[1] && process.env[key]) {
+      codes.add(match[1]);
+    }
+  }
+
+  return Array.from(codes).sort((a, b) => Number(a) - Number(b));
+}
+
 export function getPublicStationConfigs(): StationConfig[] {
   const seen = new Set<string>();
   const stations: StationConfig[] = [];
 
-  for (const code of Object.keys(STATION_NAMES)) {
+  for (const code of getConfiguredStationCodes()) {
     const config = getStationConfigByCode(code);
     if (config && !seen.has(config.code)) {
       seen.add(config.code);

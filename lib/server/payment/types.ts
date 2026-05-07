@@ -39,6 +39,7 @@ export type PaymentInput = {
 
 export type PaymentSuccessPayload = {
   success: true;
+  jobId: string;
   battery_id: string;
   slot_id: string;
   unlock: unknown;
@@ -50,6 +51,7 @@ export type PaymentDuplicatePayload = {
   success: true;
   message: string;
   transactionId: string;
+  jobId: string;
 };
 
 export type PaymentPayload = PaymentSuccessPayload | PaymentDuplicatePayload;

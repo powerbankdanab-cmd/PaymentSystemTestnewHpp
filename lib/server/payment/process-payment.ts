@@ -6,7 +6,7 @@ import {
 } from "@/lib/server/payment/battery-lock";
 import { BatteryStateConflictError } from "@/lib/server/payment/battery-state";
 import { normalizeBatteryId } from "@/lib/server/payment/battery-id";
-import { HttpError } from "@/lib/server/payment/errors";
+import { HttpError, isHttpError } from "@/lib/server/payment/errors";
 import {
   getAvailableBattery,
   isSpecificBatteryReadyForRental,
@@ -25,7 +25,11 @@ import {
 import { getActiveStationCode, getStationImei } from "@/lib/server/payment/station";
 import { getStationConfigByCode } from "@/lib/server/station-config";
 import { notifyPaidButNotEjected } from "@/lib/server/payment/telegram";
-import { PaymentInput, PaymentPayload } from "@/lib/server/payment/types";
+import { Battery, PaymentInput, PaymentPayload } from "@/lib/server/payment/types";
+import {
+  createPaymentJob,
+  updatePaymentJob,
+} from "@/lib/server/payment/payment-jobs";
 import {
   extractWaafiAudit,
   extractWaafiIds,
@@ -36,6 +40,8 @@ import {
 
 const MAX_UNLOCK_ATTEMPTS = 5;
 const UNLOCK_RETRY_DELAY_MS = 5_000;
+const EJECT_VERIFY_CHECKS = 4;
+const EJECT_VERIFY_DELAY_MS = 2_000;
 
 type BatteryPresence = "present" | "missing" | "unknown";
 
@@ -66,42 +72,114 @@ async function checkBatteryPresence(
   }
 }
 
+async function waitForBatteryEjection({
+  imei,
+  batteryId,
+  slotId,
+}: {
+  imei: string;
+  batteryId: string;
+  slotId: string;
+}): Promise<BatteryPresence> {
+  let lastPresence: BatteryPresence = "unknown";
+
+  for (let check = 1; check <= EJECT_VERIFY_CHECKS; check++) {
+    await delay(EJECT_VERIFY_DELAY_MS);
+    lastPresence = await checkBatteryPresence(imei, batteryId, slotId);
+
+    if (lastPresence === "missing") {
+      return "missing";
+    }
+  }
+
+  return lastPresence;
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function mergeJobIdIntoDetails(details: unknown, jobId: string) {
+  if (details && typeof details === "object" && !Array.isArray(details)) {
+    return {
+      ...(details as Record<string, unknown>),
+      jobId,
+    };
+  }
+
+  return { jobId };
+}
+
 export async function processPayment(
   input: PaymentInput,
 ): Promise<PaymentPayload> {
   const phoneNumber = input.phoneNumber.replace(/\D/g, "");
   const { amount } = input;
   const requestedStationCode = String(input.stationCode || "").replace(/\D/g, "");
+  const jobId = await createPaymentJob({
+    phoneNumber,
+    amount,
+    requestedStationCode: requestedStationCode || null,
+  });
 
-  const blacklisted = await isPhoneBlacklisted(phoneNumber);
-  if (blacklisted) {
-    throw new HttpError(
-      403,
-      "You are blocked from renting. Please contact support.",
-    );
-  }
-
-  const requestedStationConfig = requestedStationCode
-    ? getStationConfigByCode(requestedStationCode)
-    : null;
-  if (requestedStationCode && !requestedStationConfig) {
-    throw new HttpError(400, "Invalid station code");
-  }
-
-  const imei = requestedStationConfig?.imei || (await getStationImei());
-  const stationCode =
-    requestedStationConfig?.code || (await getActiveStationCode());
-  const phoneLockAcquired = await acquirePhonePaymentLock(phoneNumber);
-  if (!phoneLockAcquired) {
-    throw new HttpError(
-      409,
-      "A payment for this phone is already being processed. Please wait a moment before trying again.",
-    );
-  }
-
+  let phoneLockAcquired = false;
+  let imei = "";
+  let stationCode = "";
   let reservedBatteryId: string | null = null;
 
   try {
+    const requestedStationConfig = requestedStationCode
+      ? getStationConfigByCode(requestedStationCode)
+      : null;
+    if (requestedStationCode && !requestedStationConfig) {
+      throw new HttpError(400, "Invalid station code");
+    }
+
+    imei = requestedStationConfig?.imei || (await getStationImei());
+    stationCode =
+      requestedStationConfig?.code || (await getActiveStationCode());
+
+    await updatePaymentJob({
+      jobId,
+      stage: "station_resolved",
+      message: "Station resolved for payment request",
+      patch: {
+        imei,
+        stationCode,
+      },
+      details: {
+        requestedStationCode: requestedStationCode || null,
+      },
+    });
+
+    const blacklisted = await isPhoneBlacklisted(phoneNumber);
+    if (blacklisted) {
+      await updatePaymentJob({
+        jobId,
+        status: "blocked",
+        stage: "blacklisted",
+        message: "Payment blocked because phone is blacklisted",
+      });
+      throw new HttpError(
+        403,
+        "You are blocked from renting. Please contact support.",
+      );
+    }
+
+    phoneLockAcquired = await acquirePhonePaymentLock(phoneNumber);
+    if (!phoneLockAcquired) {
+      throw new HttpError(
+        409,
+        "A payment for this phone is already being processed. Please wait a moment before trying again.",
+      );
+    }
+
+    await updatePaymentJob({
+      jobId,
+      stage: "phone_locked",
+      message: "Phone payment lock acquired",
+    });
+
     const hasActiveRental = await hasActiveRentalForPhone(phoneNumber);
     if (hasActiveRental) {
       throw new HttpError(
@@ -114,11 +192,23 @@ export async function processPayment(
     // Try up to 3 different batteries in case another user reserves
     // the first one between our query and our reservation attempt.
     const MAX_RESERVE_ATTEMPTS = 3;
-    let battery = null;
+    let battery: Battery | null = null;
 
     for (let attempt = 0; attempt < MAX_RESERVE_ATTEMPTS; attempt++) {
       const candidate = await getAvailableBattery(imei);
       if (!candidate) break;
+
+      await updatePaymentJob({
+        jobId,
+        stage: "reserve_attempt",
+        message: "Trying to reserve a candidate battery",
+        details: {
+          attempt: attempt + 1,
+          batteryId: candidate.battery_id,
+          slotId: candidate.slot_id,
+          capacity: candidate.battery_capacity,
+        },
+      });
 
       const reserved = await reserveBattery(
         imei,
@@ -142,6 +232,17 @@ export async function processPayment(
 
         battery = candidate;
         reservedBatteryId = candidate.battery_id;
+        await updatePaymentJob({
+          jobId,
+          status: "reserved",
+          stage: "battery_reserved",
+          message: "Battery reserved before charging customer",
+          patch: {
+            batteryId: candidate.battery_id,
+            slotId: candidate.slot_id,
+            batteryCapacity: candidate.battery_capacity,
+          },
+        });
         break;
       }
       console.warn(
@@ -150,6 +251,12 @@ export async function processPayment(
     }
 
     if (!battery) {
+      await updatePaymentJob({
+        jobId,
+        status: "failed",
+        stage: "no_available_battery",
+        message: "No rentable battery was available",
+      });
       throw new HttpError(
         400,
         `No available battery ≥ ${MIN_AVAILABLE_BATTERY_PERCENT}%`,
@@ -158,6 +265,14 @@ export async function processPayment(
 
     // Charge first with Waafi purchase, then release the reserved battery.
     const purchaseReferenceId = `ref-${Date.now()}`;
+    await updatePaymentJob({
+      jobId,
+      stage: "charging",
+      message: "Sending Waafi purchase request",
+      patch: {
+        purchaseReferenceId,
+      },
+    });
     const purchaseResponse = await requestWaafiPurchase({
       phoneNumber,
       amount,
@@ -165,6 +280,19 @@ export async function processPayment(
     });
 
     if (!isWaafiApproved(purchaseResponse)) {
+      await updatePaymentJob({
+        jobId,
+        status: "failed",
+        stage: "payment_not_approved",
+        message: "Waafi payment was not approved",
+        patch: {
+          waafiResponseCode: purchaseResponse.responseCode
+            ? String(purchaseResponse.responseCode)
+            : null,
+          waafiResponseMsg: purchaseResponse.responseMsg || null,
+          waafiState: purchaseResponse.params?.state || null,
+        },
+      });
       throw new HttpError(400, "Payment not approved", {
         waafiResponse: purchaseResponse,
         waafiMsg: purchaseResponse.responseMsg || "",
@@ -191,6 +319,18 @@ export async function processPayment(
       : "requested_phone_only";
 
     if (!transactionId) {
+      await updatePaymentJob({
+        jobId,
+        status: "needs_support",
+        stage: "missing_transaction_id",
+        message: "Waafi approved payment but did not return a transaction ID",
+        patch: {
+          waafiResponseCode: purchaseResponse.responseCode
+            ? String(purchaseResponse.responseCode)
+            : null,
+          waafiResponseMsg: purchaseResponse.responseMsg || null,
+        },
+      });
       throw new HttpError(
         502,
         "Payment was approved, but Waafi did not return a transaction ID. Please try again.",
@@ -200,13 +340,42 @@ export async function processPayment(
     if (transactionId) {
       const duplicate = await isDuplicateTransaction(transactionId);
       if (duplicate) {
+        await updatePaymentJob({
+          jobId,
+          status: "completed",
+          stage: "duplicate_transaction",
+          message: "Waafi transaction was already processed",
+          patch: {
+            transactionId,
+            issuerTransactionId,
+            referenceId: referenceId || purchaseReferenceId,
+          },
+        });
         return {
           success: true,
           message: "Payment already processed",
           transactionId,
+          jobId,
         };
       }
     }
+
+    await updatePaymentJob({
+      jobId,
+      status: "charged",
+      stage: "payment_approved",
+      message: "Waafi payment approved",
+      patch: {
+        transactionId,
+        issuerTransactionId,
+        referenceId: referenceId || purchaseReferenceId,
+        waafiResponseCode: purchaseResponse.responseCode
+          ? String(purchaseResponse.responseCode)
+          : null,
+        waafiResponseMsg: purchaseResponse.responseMsg || null,
+        waafiState: purchaseResponse.params?.state || null,
+      },
+    });
 
     let unlock: unknown = null;
     let unlockAttempts = 0;
@@ -218,13 +387,77 @@ export async function processPayment(
       unlockAttempts = attempt;
 
       try {
+        await updatePaymentJob({
+          jobId,
+          status: "ejecting",
+          stage: "eject_attempt",
+          message: "Sending HeyCharge eject command",
+          details: {
+            attempt,
+            batteryId: currentBattery.battery_id,
+            slotId: currentBattery.slot_id,
+          },
+        });
+
         unlock = await releaseBattery({
           imei,
           batteryId: currentBattery.battery_id,
           slotId: currentBattery.slot_id,
         });
-        lastUnlockError = null;
-        break;
+
+        await updatePaymentJob({
+          jobId,
+          status: "ejecting",
+          stage: "eject_command_accepted",
+          message: "HeyCharge accepted eject command; verifying cabinet state",
+          details: {
+            attempt,
+          },
+        });
+
+        lastKnownPresence = await waitForBatteryEjection({
+          imei,
+          batteryId: currentBattery.battery_id,
+          slotId: currentBattery.slot_id,
+        });
+
+        if (lastKnownPresence === "missing") {
+          await updatePaymentJob({
+            jobId,
+            status: "verified_ejected",
+            stage: "eject_verified",
+            message: "Battery is no longer present in the slot",
+            patch: {
+              unlockAttempts,
+            },
+          });
+          lastUnlockError = null;
+          break;
+        }
+
+        lastUnlockError = new Error(
+          lastKnownPresence === "present"
+            ? "Battery remained present after eject command"
+            : "Battery eject could not be verified after command",
+        );
+
+        console.error(
+          `Battery eject not verified on attempt ${attempt}/${MAX_UNLOCK_ATTEMPTS} for battery=${currentBattery.battery_id} phone=${phoneNumber} txn=${transactionId}: ${errorMessage(lastUnlockError)}`,
+        );
+
+        if (attempt < MAX_UNLOCK_ATTEMPTS) {
+          await updatePaymentJob({
+            jobId,
+            status: "ejecting",
+            stage: "eject_retry_wait",
+            message: "Battery did not verify as ejected; waiting before retry",
+            details: {
+              attempt,
+              presence: lastKnownPresence,
+            },
+          });
+          await delay(UNLOCK_RETRY_DELAY_MS);
+        }
       } catch (unlockError) {
         lastUnlockError = unlockError;
         console.error(
@@ -239,6 +472,19 @@ export async function processPayment(
         );
 
         if (lastKnownPresence === "missing") {
+          await updatePaymentJob({
+            jobId,
+            status: "verified_ejected",
+            stage: "eject_verified_after_error",
+            message: "Battery disappeared after an eject error, treating as ejected",
+            patch: {
+              unlockAttempts,
+            },
+            details: {
+              attempt,
+              unlockError: errorMessage(unlockError),
+            },
+          });
           console.error(
             `Battery ${currentBattery.battery_id} is no longer in slot ${currentBattery.slot_id} after unlock error — treating as successful eject`,
           );
@@ -248,6 +494,17 @@ export async function processPayment(
         }
 
         if (attempt < MAX_UNLOCK_ATTEMPTS) {
+          await updatePaymentJob({
+            jobId,
+            status: "ejecting",
+            stage: "eject_retry_wait",
+            message: "Eject command failed; waiting before retry",
+            details: {
+              attempt,
+              presence: lastKnownPresence,
+              unlockError: errorMessage(unlockError),
+            },
+          });
           console.warn(
             `Battery ${currentBattery.battery_id} still not confirmed ejected after attempt ${attempt}; retrying in ${UNLOCK_RETRY_DELAY_MS}ms`,
           );
@@ -266,6 +523,15 @@ export async function processPayment(
       }
 
       if (lastKnownPresence === "missing") {
+        await updatePaymentJob({
+          jobId,
+          status: "verified_ejected",
+          stage: "eject_verified_after_final_check",
+          message: "Battery disappeared on final verification check",
+          patch: {
+            unlockAttempts,
+          },
+        });
         console.error(
           `Battery ${currentBattery.battery_id} not in slot ${currentBattery.slot_id} after unlock error — likely ejected successfully`,
         );
@@ -287,6 +553,17 @@ export async function processPayment(
               currentBattery.battery_id,
               failureNote,
             );
+            await updatePaymentJob({
+              jobId,
+              status: "needs_support",
+              stage: "problem_slot_marked",
+              message: "Slot marked as problem after failed eject",
+              patch: {
+                failureNote,
+                unlockAttempts,
+                lastKnownPresence,
+              },
+            });
           } catch (recoveryError) {
             console.error(
               "Failed to mark problem slot after purchase reversal path:",
@@ -300,6 +577,18 @@ export async function processPayment(
         let reversalError: unknown = null;
 
         try {
+          await updatePaymentJob({
+            jobId,
+            status: "needs_support",
+            stage: "reversal_requested",
+            message: "Attempting Waafi reversal after failed eject",
+            details: {
+              transactionId,
+              failureNote,
+              lastKnownPresence,
+            },
+          });
+
           const reversalResponse = await reverseWaafiPurchase({
             transactionId,
             description: "Battery release failed, payment reversed",
@@ -309,12 +598,39 @@ export async function processPayment(
             reversalError = new Error(
               reversalResponse.responseMsg || "Waafi reversal was not approved",
             );
+          } else {
+            await updatePaymentJob({
+              jobId,
+              status: "reversed",
+              stage: "reversal_approved",
+              message: "Waafi reversal approved after failed eject",
+              patch: {
+                reversalResponseCode: reversalResponse.responseCode
+                  ? String(reversalResponse.responseCode)
+                  : null,
+                reversalResponseMsg: reversalResponse.responseMsg || null,
+                reversalState: reversalResponse.params?.state || null,
+              },
+            });
           }
         } catch (error) {
           reversalError = error;
         }
 
         if (reversalError) {
+          await updatePaymentJob({
+            jobId,
+            status: "needs_support",
+            stage: "reversal_failed",
+            message: "Waafi reversal failed after paid-but-not-ejected case",
+            patch: {
+              failureNote,
+              unlockAttempts,
+              lastKnownPresence,
+              reversalError: errorMessage(reversalError),
+            },
+          });
+
           await notifyPaidButNotEjected({
             phoneNumber,
             amount,
@@ -333,6 +649,7 @@ export async function processPayment(
             502,
             "Battery could not be released after payment was charged. Please contact support.",
             {
+              jobId,
               transactionId,
               batteryId: currentBattery.battery_id,
               slotId: currentBattery.slot_id,
@@ -345,6 +662,7 @@ export async function processPayment(
           502,
           "Battery could not be released. Payment was reversed.",
           {
+            jobId,
             transactionId,
             batteryId: currentBattery.battery_id,
             slotId: currentBattery.slot_id,
@@ -371,8 +689,30 @@ export async function processPayment(
         phoneAuthority,
         waafiAudit,
       });
+      await updatePaymentJob({
+        jobId,
+        status: "completed",
+        stage: "rental_created",
+        message: "Rental record created after verified eject",
+        patch: {
+          rentalId: rentalRef.id,
+          unlockAttempts,
+        },
+      });
     } catch (error) {
       if (error instanceof BatteryStateConflictError) {
+        await updatePaymentJob({
+          jobId,
+          status: "needs_support",
+          stage: "battery_state_conflict",
+          message: "Payment charged and ejected, but battery state was already claimed",
+          patch: {
+            activeRentalId: error.activeRentalId,
+            conflictBatteryId: error.batteryId,
+            unlockAttempts,
+          },
+        });
+
         await notifyPaidButNotEjected({
           phoneNumber,
           amount,
@@ -391,6 +731,7 @@ export async function processPayment(
           409,
           "Payment was confirmed, but this battery was already linked to another active rental. Please contact support.",
           {
+            jobId,
             batteryId: error.batteryId,
             activeRentalId: error.activeRentalId,
             transactionId,
@@ -404,19 +745,69 @@ export async function processPayment(
     await releaseReservation(imei, currentBattery.battery_id);
     reservedBatteryId = null;
     await updateRentalUnlockStatus(rentalRef.id, "unlocked");
+    await updatePaymentJob({
+      jobId,
+      status: "completed",
+      stage: "completed",
+      message: "Payment and verified eject completed",
+      patch: {
+        rentalId: rentalRef.id,
+      },
+    });
 
     return {
       success: true,
+      jobId,
       battery_id: currentBattery.battery_id,
       slot_id: currentBattery.slot_id,
       unlock,
       waafiMessage: "Codsigaagu wuu guuleystay. Fadlan qaado power bank-gaaga.",
       waafiResponse: purchaseResponse,
     };
+  } catch (error) {
+    const httpDetails =
+      isHttpError(error) && error.details && typeof error.details === "object"
+        ? (error.details as Record<string, unknown>)
+        : {};
+    const paymentReversed =
+      httpDetails.waafiMsg === "Payment reversed after eject failure";
+    const paymentBlocked =
+      isHttpError(error) &&
+      error.status === 403 &&
+      error.message.includes("blocked");
+
+    await updatePaymentJob({
+      jobId,
+      status: paymentReversed
+        ? "reversed"
+        : paymentBlocked
+          ? "blocked"
+          : isHttpError(error) && error.status < 500
+            ? "failed"
+            : "needs_support",
+      stage: paymentReversed ? "reversed" : paymentBlocked ? "blocked" : "failed",
+      message: errorMessage(error),
+      patch: {
+        errorStatus: isHttpError(error) ? error.status : 500,
+        errorMessage: errorMessage(error),
+      },
+    });
+
+    if (isHttpError(error)) {
+      throw new HttpError(
+        error.status,
+        error.message,
+        mergeJobIdIntoDetails(error.details, jobId),
+      );
+    }
+
+    throw error;
   } finally {
     if (reservedBatteryId) {
       await releaseReservation(imei, reservedBatteryId);
     }
-    await releasePhonePaymentLock(phoneNumber);
+    if (phoneLockAcquired) {
+      await releasePhonePaymentLock(phoneNumber);
+    }
   }
 }
