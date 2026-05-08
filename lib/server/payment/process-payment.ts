@@ -8,13 +8,10 @@ import { BatteryStateConflictError } from "@/lib/server/payment/battery-state";
 import { normalizeBatteryId } from "@/lib/server/payment/battery-id";
 import { HttpError, isHttpError } from "@/lib/server/payment/errors";
 import {
-  getAvailableBattery,
-  isSpecificBatteryReadyForRental,
-  markProblemSlot,
+  getPowerbankProvider,
   MIN_AVAILABLE_BATTERY_PERCENT,
-  queryStationBatteries,
-  releaseBattery,
-} from "@/lib/server/payment/heycharge";
+} from "@/lib/server/payment/powerbank-provider";
+import type { PowerbankProvider } from "@/lib/server/payment/powerbank-provider";
 import { isPhoneBlacklisted } from "@/lib/server/payment/blacklist";
 import {
   createRentalLog,
@@ -22,7 +19,7 @@ import {
   isDuplicateTransaction,
   updateRentalUnlockStatus,
 } from "@/lib/server/payment/rentals";
-import { getActiveStationCode, getStationImei } from "@/lib/server/payment/station";
+import { getActiveStationConfig } from "@/lib/server/payment/station";
 import { getStationConfigByCode } from "@/lib/server/station-config";
 import { notifyPaidButNotEjected } from "@/lib/server/payment/telegram";
 import { Battery, PaymentInput, PaymentPayload } from "@/lib/server/payment/types";
@@ -50,12 +47,13 @@ function delay(ms: number) {
 }
 
 async function checkBatteryPresence(
+  provider: PowerbankProvider,
   imei: string,
   batteryId: string,
   slotId: string,
 ): Promise<BatteryPresence> {
   try {
-    const stationBatteries = await queryStationBatteries(imei);
+    const stationBatteries = await provider.queryStationBatteries(imei);
     const stillThere = stationBatteries.some(
       (battery) =>
         normalizeBatteryId(battery.battery_id) === normalizeBatteryId(batteryId) &&
@@ -73,10 +71,12 @@ async function checkBatteryPresence(
 }
 
 async function waitForBatteryEjection({
+  provider,
   imei,
   batteryId,
   slotId,
 }: {
+  provider: PowerbankProvider;
   imei: string;
   batteryId: string;
   slotId: string;
@@ -85,7 +85,7 @@ async function waitForBatteryEjection({
 
   for (let check = 1; check <= EJECT_VERIFY_CHECKS; check++) {
     await delay(EJECT_VERIFY_DELAY_MS);
-    lastPresence = await checkBatteryPresence(imei, batteryId, slotId);
+    lastPresence = await checkBatteryPresence(provider, imei, batteryId, slotId);
 
     if (lastPresence === "missing") {
       return "missing";
@@ -135,9 +135,18 @@ export async function processPayment(
       throw new HttpError(400, "Invalid station code");
     }
 
-    imei = requestedStationConfig?.imei || (await getStationImei());
-    stationCode =
-      requestedStationConfig?.code || (await getActiveStationCode());
+    const stationConfig = requestedStationConfig || (await getActiveStationConfig());
+    if (!stationConfig.imei) {
+      throw new HttpError(
+        500,
+        `Station ${stationConfig.code} hardware ID is not configured`,
+      );
+    }
+
+    const powerbankProvider = getPowerbankProvider(stationConfig.provider);
+
+    imei = stationConfig.imei;
+    stationCode = stationConfig.code;
 
     await updatePaymentJob({
       jobId,
@@ -149,6 +158,7 @@ export async function processPayment(
       },
       details: {
         requestedStationCode: requestedStationCode || null,
+        provider: powerbankProvider.name,
       },
     });
 
@@ -195,7 +205,7 @@ export async function processPayment(
     let battery: Battery | null = null;
 
     for (let attempt = 0; attempt < MAX_RESERVE_ATTEMPTS; attempt++) {
-      const candidate = await getAvailableBattery(imei);
+      const candidate = await powerbankProvider.getAvailableBattery(imei);
       if (!candidate) break;
 
       await updatePaymentJob({
@@ -216,7 +226,7 @@ export async function processPayment(
         phoneNumber,
       );
       if (reserved) {
-        const stillReady = await isSpecificBatteryReadyForRental({
+        const stillReady = await powerbankProvider.isSpecificBatteryReadyForRental({
           imei,
           batteryId: candidate.battery_id,
           slotId: candidate.slot_id,
@@ -391,7 +401,7 @@ export async function processPayment(
           jobId,
           status: "ejecting",
           stage: "eject_attempt",
-          message: "Sending HeyCharge eject command",
+          message: `Sending ${powerbankProvider.displayName} eject command`,
           details: {
             attempt,
             batteryId: currentBattery.battery_id,
@@ -399,7 +409,7 @@ export async function processPayment(
           },
         });
 
-        unlock = await releaseBattery({
+        unlock = await powerbankProvider.releaseBattery({
           imei,
           batteryId: currentBattery.battery_id,
           slotId: currentBattery.slot_id,
@@ -409,13 +419,14 @@ export async function processPayment(
           jobId,
           status: "ejecting",
           stage: "eject_command_accepted",
-          message: "HeyCharge accepted eject command; verifying cabinet state",
+          message: `${powerbankProvider.displayName} accepted eject command; verifying cabinet state`,
           details: {
             attempt,
           },
         });
 
         lastKnownPresence = await waitForBatteryEjection({
+          provider: powerbankProvider,
           imei,
           batteryId: currentBattery.battery_id,
           slotId: currentBattery.slot_id,
@@ -466,6 +477,7 @@ export async function processPayment(
         );
 
         lastKnownPresence = await checkBatteryPresence(
+          powerbankProvider,
           imei,
           currentBattery.battery_id,
           currentBattery.slot_id,
@@ -516,6 +528,7 @@ export async function processPayment(
     if (lastUnlockError) {
       if (lastKnownPresence !== "present") {
         lastKnownPresence = await checkBatteryPresence(
+          powerbankProvider,
           imei,
           currentBattery.battery_id,
           currentBattery.slot_id,
@@ -547,7 +560,7 @@ export async function processPayment(
 
         if (lastKnownPresence === "present") {
           try {
-            await markProblemSlot(
+            await powerbankProvider.markProblemSlot(
               imei,
               currentBattery.slot_id,
               currentBattery.battery_id,
