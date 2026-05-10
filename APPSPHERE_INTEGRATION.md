@@ -38,8 +38,8 @@ Set these only after the bridge is deployed and tested:
 APPSPHERE_BRIDGE_URL=https://your-bridge.example.com
 APPSPHERE_BRIDGE_SECRET=use-a-long-random-secret
 
-STATION_63_PROVIDER=appsphere
-STATION_63_CABINET_SN=your-cabinet-sn
+STATION_20_PROVIDER=appsphere
+STATION_20_CABINET_SN=your-cabinet-sn
 ```
 
 Existing HeyCharge stations need no provider value because `heycharge` is the default:

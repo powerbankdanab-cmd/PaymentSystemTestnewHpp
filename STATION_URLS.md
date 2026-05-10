@@ -6,20 +6,29 @@
 - **URL**: https://station58.danab.site
 - **IMEI**: WSEP161721195358
 ---
-### Station 59 - Feynuus Bowling
-- **URL**: https://station59.danab.site
+### Station 02 - Feynuus Bowling
+- **URL**: https://station02.danab.site
+- **IMEI**: WSEP161741066502
 ---
 
-### Station 60 - Java Taleex
-- **URL**: https://station60.danab.site
+### Station 03 - Java Taleex
+- **URL**: https://station03.danab.site
+- **IMEI**: WSEP161741066503
 ---
 
-### Station 61 - Delik Somalia
-- **URL**: https://station61.danab.site
+### Station 04 - Delik Somalia
+- **URL**: https://station04.danab.site
+- **IMEI**: WSEP161741066504
 ---
 
-### Station 62 - Arena cafe Mogadishu
-- **URL**: https://station62.danab.site
+### Station 05 - Arena cafe Mogadishu
+- **URL**: https://station05.danab.site
+- **IMEI**: WSEP161741066505
+---
+
+### Station 20 - AppSphere test station
+- **URL**: https://station20.danab.site
+- **Cabinet SN**: 49000620
 ---
 
 ## Quick Reference Table
@@ -27,10 +36,11 @@
 | Station # | Location | URL | IMEI |
 |-----------|----------|-----|------|
 | 58 | Cafe Castello Taleex | https://station58.danab.site | WSEP161721195358 |
-| 59 | Feynuus Bowling | https://station59.danab.site | WSEP161741066502 |
-| 60 | Java Taleex | https://station60.danab.site | WSEP161741066503 |
-| 61 | Delik Somalia | https://station61.danab.site | WSEP161741066504 |
-| 62 | Arena cafe Mogadishu | https://station62.danab.site | WSEP161741066505 |
+| 02 | Feynuus Bowling | https://station02.danab.site | WSEP161741066502 |
+| 03 | Java Taleex | https://station03.danab.site | WSEP161741066503 |
+| 04 | Delik Somalia | https://station04.danab.site | WSEP161741066504 |
+| 05 | Arena cafe Mogadishu | https://station05.danab.site | WSEP161741066505 |
+| 20 | AppSphere test station | https://station20.danab.site | 49000620 |
 
 ---
 

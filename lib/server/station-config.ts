@@ -10,14 +10,44 @@ export type StationConfig = {
 
 const STATION_NAMES: Record<string, string> = {
   "58": "Danab-Cafe Castello\nTaleex",
-  "59": "Danab-Feynuus\nBowling",
-  "60": "Danab-Java\nTaleex",
-  "61": "Danab-Delik\nSomalia",
-  "62": "Danab-Arena Cafe\nMogadishu",
+  "02": "Danab-Feynuus\nBowling",
+  "03": "Danab-Java\nTaleex",
+  "04": "Danab-Delik\nSomalia",
+  "05": "Danab-Arena Cafe\nMogadishu",
+  "20": "Danab Powerbank\nAppSphere",
 };
 
+const LEGACY_STATION_CODES: Record<string, string> = {
+  "59": "02",
+  "60": "03",
+  "61": "04",
+  "62": "05",
+  "63": "20",
+};
+
+const LEGACY_ENV_CODES: Record<string, string[]> = {
+  "02": ["59"],
+  "03": ["60"],
+  "04": ["61"],
+  "05": ["62"],
+  "20": ["63"],
+};
+
+function getStationEnv(code: string, key: string) {
+  const codes = [code, ...(LEGACY_ENV_CODES[code] || [])];
+
+  for (const candidate of codes) {
+    const value = process.env[`STATION_${candidate}_${key}`];
+    if (value) {
+      return value;
+    }
+  }
+
+  return "";
+}
+
 function getStationProvider(code: string): StationProvider {
-  const raw = String(process.env[`STATION_${code}_PROVIDER`] || "heycharge")
+  const raw = String(getStationEnv(code, "PROVIDER") || "heycharge")
     .trim()
     .toLowerCase();
 
@@ -27,21 +57,21 @@ function getStationProvider(code: string): StationProvider {
 function getStationHardwareId(code: string, provider: StationProvider) {
   if (provider === "appsphere") {
     return (
-      process.env[`STATION_${code}_CABINET_SN`] ||
-      process.env[`STATION_${code}_DEVICE_UUID`] ||
-      process.env[`STATION_${code}_IMEI`] ||
+      getStationEnv(code, "CABINET_SN") ||
+      getStationEnv(code, "DEVICE_UUID") ||
+      getStationEnv(code, "IMEI") ||
       ""
     );
   }
 
-  return process.env[`STATION_${code}_IMEI`] || "";
+  return getStationEnv(code, "IMEI") || "";
 }
 
 function buildStationConfig(code: string, name?: string): StationConfig {
   const provider = getStationProvider(code);
   const cabinetSn =
-    process.env[`STATION_${code}_CABINET_SN`] ||
-    process.env[`STATION_${code}_DEVICE_UUID`] ||
+    getStationEnv(code, "CABINET_SN") ||
+    getStationEnv(code, "DEVICE_UUID") ||
     undefined;
 
   return {
@@ -56,18 +86,31 @@ function buildStationConfig(code: string, name?: string): StationConfig {
 export const STATION_CONFIGS: Record<string, StationConfig> = {
   "station58.danab.com": buildStationConfig("58"),
   "station58.danab.site": buildStationConfig("58"),
-  "station59.danab.com": buildStationConfig("59"),
-  "station59.danab.site": buildStationConfig("59"),
-  "station60.danab.com": buildStationConfig("60"),
-  "station60.danab.site": buildStationConfig("60"),
-  "station61.danab.com": buildStationConfig("61"),
-  "station61.danab.site": buildStationConfig("61"),
-  "station62.danab.com": buildStationConfig("62"),
-  "station62.danab.site": buildStationConfig("62"),
+  "station02.danab.com": buildStationConfig("02"),
+  "station02.danab.site": buildStationConfig("02"),
+  "station03.danab.com": buildStationConfig("03"),
+  "station03.danab.site": buildStationConfig("03"),
+  "station04.danab.com": buildStationConfig("04"),
+  "station04.danab.site": buildStationConfig("04"),
+  "station05.danab.com": buildStationConfig("05"),
+  "station05.danab.site": buildStationConfig("05"),
+  "station20.danab.com": buildStationConfig("20"),
+  "station20.danab.site": buildStationConfig("20"),
+  "station59.danab.com": buildStationConfig("02"),
+  "station59.danab.site": buildStationConfig("02"),
+  "station60.danab.com": buildStationConfig("03"),
+  "station60.danab.site": buildStationConfig("03"),
+  "station61.danab.com": buildStationConfig("04"),
+  "station61.danab.site": buildStationConfig("04"),
+  "station62.danab.com": buildStationConfig("05"),
+  "station62.danab.site": buildStationConfig("05"),
+  "station63.danab.com": buildStationConfig("20"),
+  "station63.danab.site": buildStationConfig("20"),
 };
 
 function normalizeStationCode(code: string): string {
-  return String(code || "").replace(/\D/g, "");
+  const normalized = String(code || "").replace(/\D/g, "");
+  return LEGACY_STATION_CODES[normalized] || normalized;
 }
 
 export function getStationConfigByDomain(
@@ -88,7 +131,8 @@ export function getStationConfigByDomain(
   }
 
   if (process.env.STATION_CODE) {
-    const provider = getStationProvider(process.env.STATION_CODE);
+    const fallbackCode = normalizeStationCode(process.env.STATION_CODE);
+    const provider = getStationProvider(fallbackCode);
     const hardwareId =
       provider === "appsphere"
         ? process.env.STATION_CABINET_SN ||
@@ -101,9 +145,9 @@ export function getStationConfigByDomain(
     }
 
     return {
-      code: process.env.STATION_CODE,
+      code: fallbackCode,
       imei: hardwareId,
-      name: process.env.STATION_NAME || `Station ${process.env.STATION_CODE}`,
+      name: process.env.STATION_NAME || `Station ${fallbackCode}`,
       provider,
       cabinetSn:
         process.env.STATION_CABINET_SN ||
@@ -138,7 +182,7 @@ function getConfiguredStationCodes() {
       /^STATION_(\d+)_(IMEI|CABINET_SN|DEVICE_UUID|PROVIDER)$/,
     );
     if (match?.[1] && process.env[key]) {
-      codes.add(match[1]);
+      codes.add(normalizeStationCode(match[1]));
     }
   }
 
