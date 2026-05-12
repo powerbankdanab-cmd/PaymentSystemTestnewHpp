@@ -251,18 +251,46 @@ async function queryAppSphereStationBatteries(cabinetSn: string) {
   });
 }
 
-async function getProblemSlotIds(imei: string): Promise<Set<string>> {
+function isHealthyMappedBattery(battery: Battery) {
+  const capacity = Number.parseInt(battery.battery_capacity, 10);
+  return (
+    Boolean(normalizeBatteryId(battery.battery_id)) &&
+    Boolean(battery.slot_id) &&
+    battery.lock_status === "1" &&
+    Number.isFinite(capacity) &&
+    capacity >= MIN_AVAILABLE_BATTERY_PERCENT &&
+    battery.battery_abnormal === "0" &&
+    battery.cable_abnormal === "0"
+  );
+}
+
+async function getProblemSlotIds(
+  imei: string,
+  liveBatteries: Battery[] = [],
+): Promise<Set<string>> {
   const snap = await getDb()
     .collection("problem_slots")
     .where("imei", "==", imei)
     .where("resolved", "==", false)
     .get();
 
+  const healthySlotIds = new Set(
+    liveBatteries.filter(isHealthyMappedBattery).map((battery) => battery.slot_id),
+  );
   const ids = new Set<string>();
   for (const doc of snap.docs) {
     const slotId = doc.data().slot_id;
     if (slotId) {
-      ids.add(String(slotId));
+      const normalizedSlotId = String(slotId);
+      if (healthySlotIds.has(normalizedSlotId)) {
+        await doc.ref.update({
+          resolved: true,
+          resolvedAt: new Date(),
+          resolvedBy: "payment-auto-healthy",
+        });
+        continue;
+      }
+      ids.add(normalizedSlotId);
     }
   }
   return ids;
@@ -286,7 +314,7 @@ async function getAppSphereAvailableBattery(cabinetSn: string) {
   const batteryIds = batteries.map((battery) => battery.battery_id);
 
   const [problemSlots, reservedIds, rentedIds] = await Promise.all([
-    getProblemSlotIds(cabinetSn),
+    getProblemSlotIds(cabinetSn, batteries),
     getReservedBatteryIds(cabinetSn),
     getActiveRentedBatteryIds(batteryIds),
   ]);
@@ -317,9 +345,9 @@ async function isAppSphereSpecificBatteryReadyForRental({
     return false;
   }
 
-  const [batteries, problemSlots, rentedIds] = await Promise.all([
-    queryAppSphereStationBatteries(imei),
-    getProblemSlotIds(imei),
+  const batteries = await queryAppSphereStationBatteries(imei);
+  const [problemSlots, rentedIds] = await Promise.all([
+    getProblemSlotIds(imei, batteries),
     getActiveRentedBatteryIds([normalizedBatteryId]),
   ]);
 
