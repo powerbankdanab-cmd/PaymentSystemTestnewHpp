@@ -33,8 +33,32 @@ const STATIONS = [
   },
   {
     id: "20",
-    name: "Danab Powerbank AppSphere",
+    name: "AppSphere 49000620",
     url: "https://station20.danab.site",
+    area: "Mogadishu",
+  },
+  {
+    id: "21",
+    name: "AppSphere 49000621",
+    url: "https://station21.danab.site",
+    area: "Mogadishu",
+  },
+  {
+    id: "22",
+    name: "AppSphere 49000622",
+    url: "https://station22.danab.site",
+    area: "Mogadishu",
+  },
+  {
+    id: "27",
+    name: "AppSphere 49000627",
+    url: "https://station27.danab.site",
+    area: "Mogadishu",
+  },
+  {
+    id: "34",
+    name: "AppSphere 49000634",
+    url: "https://station34.danab.site",
     area: "Mogadishu",
   },
 ];

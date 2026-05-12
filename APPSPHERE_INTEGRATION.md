@@ -42,6 +42,18 @@ STATION_20_PROVIDER=appsphere
 STATION_20_CABINET_SN=your-cabinet-sn
 ```
 
+The current migrated Danab AppSphere stations are built into the payment app:
+
+| Customer URL | Cabinet SN |
+| --- | --- |
+| `https://station20.danab.site` | `49000620` |
+| `https://station21.danab.site` | `49000621` |
+| `https://station22.danab.site` | `49000622` |
+| `https://station27.danab.site` | `49000627` |
+| `https://station34.danab.site` | `49000634` |
+
+For fresh AppSphere battery state, the payment app sends a bridge refresh before reading `/batteries` by default. Disable only for debugging with `APPSPHERE_REFRESH_BEFORE_READ=false`.
+
 Existing HeyCharge stations need no provider value because `heycharge` is the default:
 
 ```env

@@ -14,7 +14,19 @@ const STATION_NAMES: Record<string, string> = {
   "03": "Danab-Java\nTaleex",
   "04": "Danab-Delik\nSomalia",
   "05": "Danab-Arena Cafe\nMogadishu",
-  "20": "Danab Powerbank\nAppSphere",
+  "20": "Danab Powerbank\nAppSphere 49000620",
+  "21": "Danab Powerbank\nAppSphere 49000621",
+  "22": "Danab Powerbank\nAppSphere 49000622",
+  "27": "Danab Powerbank\nAppSphere 49000627",
+  "34": "Danab Powerbank\nAppSphere 49000634",
+};
+
+const DEFAULT_APPSPHERE_CABINETS: Record<string, string> = {
+  "20": "49000620",
+  "21": "49000621",
+  "22": "49000622",
+  "27": "49000627",
+  "34": "49000634",
 };
 
 const LEGACY_STATION_CODES: Record<string, string> = {
@@ -47,9 +59,12 @@ function getStationEnv(code: string, key: string) {
 }
 
 function getStationProvider(code: string): StationProvider {
-  const raw = String(getStationEnv(code, "PROVIDER") || "heycharge")
-    .trim()
-    .toLowerCase();
+  const configuredProvider = getStationEnv(code, "PROVIDER");
+  if (!configuredProvider && DEFAULT_APPSPHERE_CABINETS[code]) {
+    return "appsphere";
+  }
+
+  const raw = String(configuredProvider || "heycharge").trim().toLowerCase();
 
   return raw === "appsphere" ? "appsphere" : "heycharge";
 }
@@ -60,6 +75,7 @@ function getStationHardwareId(code: string, provider: StationProvider) {
       getStationEnv(code, "CABINET_SN") ||
       getStationEnv(code, "DEVICE_UUID") ||
       getStationEnv(code, "IMEI") ||
+      DEFAULT_APPSPHERE_CABINETS[code] ||
       ""
     );
   }
@@ -72,6 +88,7 @@ function buildStationConfig(code: string, name?: string): StationConfig {
   const cabinetSn =
     getStationEnv(code, "CABINET_SN") ||
     getStationEnv(code, "DEVICE_UUID") ||
+    DEFAULT_APPSPHERE_CABINETS[code] ||
     undefined;
 
   return {
@@ -96,6 +113,14 @@ export const STATION_CONFIGS: Record<string, StationConfig> = {
   "station05.danab.site": buildStationConfig("05"),
   "station20.danab.com": buildStationConfig("20"),
   "station20.danab.site": buildStationConfig("20"),
+  "station21.danab.com": buildStationConfig("21"),
+  "station21.danab.site": buildStationConfig("21"),
+  "station22.danab.com": buildStationConfig("22"),
+  "station22.danab.site": buildStationConfig("22"),
+  "station27.danab.com": buildStationConfig("27"),
+  "station27.danab.site": buildStationConfig("27"),
+  "station34.danab.com": buildStationConfig("34"),
+  "station34.danab.site": buildStationConfig("34"),
   "station59.danab.com": buildStationConfig("02"),
   "station59.danab.site": buildStationConfig("02"),
   "station60.danab.com": buildStationConfig("03"),

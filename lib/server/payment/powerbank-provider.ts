@@ -49,6 +49,25 @@ const heyChargeProvider: PowerbankProvider = {
   markProblemSlot: markHeyChargeProblemSlot,
 };
 
+function numberEnv(name: string, fallback: number, max: number) {
+  const parsed = Number.parseInt(String(process.env[name] || ""), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+
+  return Math.min(parsed, max);
+}
+
+function shouldRefreshBeforeRead() {
+  return String(process.env.APPSPHERE_REFRESH_BEFORE_READ || "true")
+    .trim()
+    .toLowerCase() !== "false";
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function getBridgeBaseUrl() {
   const raw = process.env.APPSPHERE_BRIDGE_URL;
   if (!raw) {
@@ -229,11 +248,27 @@ async function fetchAppSphereBridge(
   suffix: string,
   init?: RequestInit,
 ) {
-  const response = await fetch(buildBridgeUrl(cabinetSn, suffix), {
-    ...init,
-    cache: "no-store",
-    headers: bridgeHeaders(),
-  });
+  const timeoutMs = numberEnv("APPSPHERE_BRIDGE_TIMEOUT_MS", 7_000, 20_000);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  let response: Response;
+
+  try {
+    response = await fetch(buildBridgeUrl(cabinetSn, suffix), {
+      ...init,
+      cache: "no-store",
+      headers: bridgeHeaders(),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`AppSphere bridge timed out after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+
   const payload = await parseResponseBody(response);
 
   if (!response.ok) {
@@ -243,7 +278,27 @@ async function fetchAppSphereBridge(
   return payload;
 }
 
+async function refreshAppSphereSnapshot(cabinetSn: string) {
+  if (!shouldRefreshBeforeRead()) {
+    return;
+  }
+
+  try {
+    await fetchAppSphereBridge(cabinetSn, "/refresh", {
+      method: "POST",
+      body: "{}",
+    });
+    await delay(numberEnv("APPSPHERE_REFRESH_SETTLE_MS", 650, 3_000));
+  } catch (error) {
+    console.warn(
+      `AppSphere refresh failed for ${cabinetSn}; using latest bridge snapshot:`,
+      error instanceof Error ? error.message : error,
+    );
+  }
+}
+
 async function queryAppSphereStationBatteries(cabinetSn: string) {
+  await refreshAppSphereSnapshot(cabinetSn);
   const payload = await fetchAppSphereBridge(cabinetSn, "/batteries");
   return extractSlotList(payload).flatMap((slot) => {
     const battery = mapAppSphereSlotToBattery(slot);

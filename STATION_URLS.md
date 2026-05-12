@@ -26,9 +26,12 @@
 - **IMEI**: WSEP161741066505
 ---
 
-### Station 20 - AppSphere test station
-- **URL**: https://station20.danab.site
-- **Cabinet SN**: 49000620
+### AppSphere / Besiter migrated stations
+- **Station 20 URL**: https://station20.danab.site - Cabinet SN `49000620`
+- **Station 21 URL**: https://station21.danab.site - Cabinet SN `49000621`
+- **Station 22 URL**: https://station22.danab.site - Cabinet SN `49000622`
+- **Station 27 URL**: https://station27.danab.site - Cabinet SN `49000627`
+- **Station 34 URL**: https://station34.danab.site - Cabinet SN `49000634`
 ---
 
 ## Quick Reference Table
@@ -40,7 +43,11 @@
 | 03 | Java Taleex | https://station03.danab.site | WSEP161741066503 |
 | 04 | Delik Somalia | https://station04.danab.site | WSEP161741066504 |
 | 05 | Arena cafe Mogadishu | https://station05.danab.site | WSEP161741066505 |
-| 20 | AppSphere test station | https://station20.danab.site | 49000620 |
+| 20 | AppSphere 49000620 | https://station20.danab.site | 49000620 |
+| 21 | AppSphere 49000621 | https://station21.danab.site | 49000621 |
+| 22 | AppSphere 49000622 | https://station22.danab.site | 49000622 |
+| 27 | AppSphere 49000627 | https://station27.danab.site | 49000627 |
+| 34 | AppSphere 49000634 | https://station34.danab.site | 49000634 |
 
 ---
 
@@ -62,4 +69,4 @@ Each station should have a QR code printed and placed at the physical location. 
 - All stations use the same codebase
 - Each station is automatically identified by its subdomain
 - Payments are processed through Waafi Pay
-- Power banks are managed via HeyCharge API
+- Power banks are managed via HeyCharge API for HeyCharge stations and the AppSphere bridge for AppSphere/Besiter stations
