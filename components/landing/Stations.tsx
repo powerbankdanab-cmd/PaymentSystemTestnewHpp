@@ -45,7 +45,7 @@ const STATIONS = [
   },
   {
     id: "22",
-    name: "Crepe One",
+    name: "Milgo caffe",
     url: "https://station22.danab.site",
     area: "Mogadishu",
   },

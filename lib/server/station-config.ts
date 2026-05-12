@@ -16,7 +16,7 @@ const STATION_NAMES: Record<string, string> = {
   "05": "Danab-Arena Cafe\nMogadishu",
   "20": "Elite Hotel\nDanab Powerbank",
   "21": "Karmel\nDanab Powerbank",
-  "22": "Crepe One\nDanab Powerbank",
+  "22": "Milgo caffe\nDanab Powerbank",
   "27": "Danab Powerbank\nAppSphere 49000627",
   "34": "Danab Powerbank\nAppSphere 49000634",
 };
