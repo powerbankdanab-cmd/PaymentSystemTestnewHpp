@@ -3,12 +3,17 @@ import { getRequiredEnv } from "@/lib/server/env";
 import { getDb } from "@/lib/server/firebase-admin";
 import { normalizeBatteryId } from "@/lib/server/payment/battery-id";
 import { getReservedBatteryIds } from "@/lib/server/payment/battery-lock";
+import { HttpError } from "@/lib/server/payment/errors";
 import { parseResponseBody, toErrorMessage } from "@/lib/server/payment/http";
 import { Battery } from "@/lib/server/payment/types";
 import { getActiveRentedBatteryIds } from "@/lib/server/payment/rentals";
 
 type HeyChargeStationResponse = {
   batteries?: Battery[];
+  station_status?: string | null;
+  stationStatus?: string | null;
+  status?: string | null;
+  online?: boolean | null;
 };
 
 const HEYCHARGE_QUERY_TIMEOUT_MS = 20_000;
@@ -21,11 +26,9 @@ function buildHeyChargeAuthHeader() {
   return `Basic ${basicToken}`;
 }
 
-/**
- * Query HeyCharge for all batteries currently in the station.
- * Reusable for both initial selection and post-timeout recheck.
- */
-export async function queryStationBatteries(imei: string): Promise<Battery[]> {
+async function queryHeyChargeStation(
+  imei: string,
+): Promise<HeyChargeStationResponse> {
   const domain = getRequiredEnv("HEYCHARGE_DOMAIN");
   const controller = new AbortController();
   const timeout = setTimeout(() => {
@@ -67,7 +70,44 @@ export async function queryStationBatteries(imei: string): Promise<Battery[]> {
       ? (payload as HeyChargeStationResponse)
       : null;
 
-  return Array.isArray(payloadObject?.batteries) ? payloadObject.batteries : [];
+  return payloadObject || {};
+}
+
+function isHeyChargeStationOnline(station: HeyChargeStationResponse): boolean {
+  if (station.online === false) return false;
+  if (station.online === true) return true;
+
+  const status = String(
+    station.station_status || station.stationStatus || station.status || "",
+  )
+    .trim()
+    .toLowerCase();
+
+  if (!status) return true;
+
+  return ![
+    "offline",
+    "off_line",
+    "off-line",
+    "disconnected",
+    "inactive",
+    "down",
+    "0",
+  ].includes(status);
+}
+
+/**
+ * Query HeyCharge for all batteries currently in the station.
+ * Reusable for both initial selection and post-timeout recheck.
+ */
+export async function queryStationBatteries(imei: string): Promise<Battery[]> {
+  const station = await queryHeyChargeStation(imei);
+
+  if (!isHeyChargeStationOnline(station)) {
+    throw new HttpError(400, "Station is offline");
+  }
+
+  return Array.isArray(station.batteries) ? station.batteries : [];
 }
 
 /**

@@ -1,6 +1,7 @@
 import { getDb } from "@/lib/server/firebase-admin";
 import { normalizeBatteryId } from "@/lib/server/payment/battery-id";
 import { getReservedBatteryIds } from "@/lib/server/payment/battery-lock";
+import { HttpError } from "@/lib/server/payment/errors";
 import {
   queryStationBatteries as queryHeyChargeStationBatteries,
   getAvailableBattery as getHeyChargeAvailableBattery,
@@ -11,6 +12,7 @@ import {
 } from "@/lib/server/payment/heycharge";
 import { parseResponseBody, toErrorMessage } from "@/lib/server/payment/http";
 import { getActiveRentedBatteryIds } from "@/lib/server/payment/rentals";
+import { isFreshProviderTimestamp } from "@/lib/server/payment/station-freshness";
 import type { Battery } from "@/lib/server/payment/types";
 import type { StationProvider } from "@/lib/server/station-config";
 
@@ -196,6 +198,73 @@ function extractSlotList(payload: unknown): Record<string, unknown>[] {
   return [];
 }
 
+function bridgePayloadLastSeen(payload: unknown): unknown {
+  const root = asRecord(payload);
+  const data = asRecord(root?.data);
+  const machineSummary = asRecord(root?.machineSummary);
+  const parsed = asRecord(root?.parsed);
+
+  return firstValue(
+    root?.lastSeen,
+    root?.last_seen,
+    root?.reportedAt,
+    root?.updatedAt,
+    data?.lastSeen,
+    data?.last_seen,
+    data?.reportedAt,
+    data?.updatedAt,
+    machineSummary?.lastSeen,
+    machineSummary?.reportedAt,
+    parsed?.lastSeen,
+    parsed?.reportedAt,
+  );
+}
+
+function bridgePayloadStatus(payload: unknown): string {
+  const root = asRecord(payload);
+  const data = asRecord(root?.data);
+  const machineSummary = asRecord(root?.machineSummary);
+  const parsed = asRecord(root?.parsed);
+
+  return toText(
+    firstValue(
+      root?.station_status,
+      root?.stationStatus,
+      root?.status,
+      root?.online,
+      data?.station_status,
+      data?.stationStatus,
+      data?.status,
+      data?.online,
+      machineSummary?.station_status,
+      machineSummary?.stationStatus,
+      machineSummary?.status,
+      machineSummary?.online,
+      parsed?.station_status,
+      parsed?.status,
+    ),
+  ).toLowerCase();
+}
+
+function assertAppSphereStationReady(payload: unknown) {
+  const status = bridgePayloadStatus(payload);
+  if (
+    ["offline", "off_line", "off-line", "disconnected", "inactive", "down", "false", "0"].includes(
+      status,
+    )
+  ) {
+    throw new HttpError(400, "Station is offline");
+  }
+
+  const lastSeen = bridgePayloadLastSeen(payload);
+  if (!isFreshProviderTimestamp(lastSeen)) {
+    throw new HttpError(
+      400,
+      "Station is offline or has no fresh report in the last 5 minutes",
+    );
+  }
+}
+
 function mapAppSphereSlotToBattery(slot: Record<string, unknown>): Battery | null {
   const batteryId = toText(
     firstValue(
@@ -300,6 +369,7 @@ async function refreshAppSphereSnapshot(cabinetSn: string) {
 async function queryAppSphereStationBatteries(cabinetSn: string) {
   await refreshAppSphereSnapshot(cabinetSn);
   const payload = await fetchAppSphereBridge(cabinetSn, "/batteries");
+  assertAppSphereStationReady(payload);
   return extractSlotList(payload).flatMap((slot) => {
     const battery = mapAppSphereSlotToBattery(slot);
     return battery ? [battery] : [];
