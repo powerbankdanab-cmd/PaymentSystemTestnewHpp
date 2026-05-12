@@ -33,19 +33,19 @@ const STATIONS = [
   },
   {
     id: "20",
-    name: "AppSphere 49000620",
+    name: "Elite Hotel",
     url: "https://station20.danab.site",
     area: "Mogadishu",
   },
   {
     id: "21",
-    name: "AppSphere 49000621",
+    name: "Karmel",
     url: "https://station21.danab.site",
     area: "Mogadishu",
   },
   {
     id: "22",
-    name: "AppSphere 49000622",
+    name: "Crepe One",
     url: "https://station22.danab.site",
     area: "Mogadishu",
   },

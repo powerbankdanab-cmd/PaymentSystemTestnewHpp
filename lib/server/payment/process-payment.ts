@@ -15,7 +15,6 @@ import type { PowerbankProvider } from "@/lib/server/payment/powerbank-provider"
 import { isPhoneBlacklisted } from "@/lib/server/payment/blacklist";
 import {
   createRentalLog,
-  hasActiveRentalForPhone,
   isDuplicateTransaction,
   updateRentalUnlockStatus,
 } from "@/lib/server/payment/rentals";
@@ -189,14 +188,6 @@ export async function processPayment(
       stage: "phone_locked",
       message: "Phone payment lock acquired",
     });
-
-    const hasActiveRental = await hasActiveRentalForPhone(phoneNumber);
-    if (hasActiveRental) {
-      throw new HttpError(
-        409,
-        "You already have an active rental. Please return it before renting another battery.",
-      );
-    }
 
     // ── Atomic battery reservation ────────────────────────────────
     // Try up to 3 different batteries in case another user reserves
