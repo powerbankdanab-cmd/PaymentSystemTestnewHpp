@@ -415,6 +415,25 @@ export async function processPayment(
           slotId: currentBattery.slot_id,
         });
 
+        if (!powerbankProvider.verifyEjection) {
+          await updatePaymentJob({
+            jobId,
+            status: "verified_ejected",
+            stage: "eject_command_accepted",
+            message: `${powerbankProvider.displayName} accepted eject command`,
+            patch: {
+              unlockAttempts,
+            },
+            details: {
+              attempt,
+              verification: "command_accepted",
+            },
+          });
+          lastKnownPresence = "unknown";
+          lastUnlockError = null;
+          break;
+        }
+
         await updatePaymentJob({
           jobId,
           status: "ejecting",
@@ -773,8 +792,11 @@ export async function processPayment(
       jobId,
       battery_id: currentBattery.battery_id,
       slot_id: currentBattery.slot_id,
+      provider: powerbankProvider.name,
+      stationCode,
+      ejectVerified: powerbankProvider.verifyEjection,
       unlock,
-      waafiMessage: "Codsigaagu wuu guuleystay. Fadlan qaado power bank-gaaga.",
+      waafiMessage: "Lacag bixinta way guuleysatay, power bank-gana wuu soo baxay. Fadlan qaado.",
       waafiResponse: purchaseResponse,
     };
   } catch (error) {

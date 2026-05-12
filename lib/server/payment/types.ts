@@ -42,6 +42,9 @@ export type PaymentSuccessPayload = {
   jobId: string;
   battery_id: string;
   slot_id: string;
+  provider: string;
+  stationCode: string;
+  ejectVerified: boolean;
   unlock: unknown;
   waafiMessage: string;
   waafiResponse: WaafiResponse;

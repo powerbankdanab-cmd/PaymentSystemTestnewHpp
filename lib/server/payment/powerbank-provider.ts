@@ -25,6 +25,7 @@ type ReleaseBatteryInput = {
 export type PowerbankProvider = {
   name: StationProvider;
   displayName: string;
+  verifyEjection: boolean;
   queryStationBatteries(imei: string): Promise<Battery[]>;
   getAvailableBattery(imei: string): Promise<Battery | null>;
   isSpecificBatteryReadyForRental(input: ReleaseBatteryInput): Promise<boolean>;
@@ -40,6 +41,7 @@ export type PowerbankProvider = {
 const heyChargeProvider: PowerbankProvider = {
   name: "heycharge",
   displayName: "HeyCharge",
+  verifyEjection: true,
   queryStationBatteries: queryHeyChargeStationBatteries,
   getAvailableBattery: getHeyChargeAvailableBattery,
   isSpecificBatteryReadyForRental: isHeyChargeSpecificBatteryReadyForRental,
@@ -372,6 +374,7 @@ async function markAppSphereProblemSlot(
 const appSphereProvider: PowerbankProvider = {
   name: "appsphere",
   displayName: "AppSphere",
+  verifyEjection: false,
   queryStationBatteries: queryAppSphereStationBatteries,
   getAvailableBattery: getAppSphereAvailableBattery,
   isSpecificBatteryReadyForRental: isAppSphereSpecificBatteryReadyForRental,

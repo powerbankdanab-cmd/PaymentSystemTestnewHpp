@@ -23,6 +23,9 @@ type ApiResponse = {
   blacklisted?: boolean;
   battery_id?: string;
   slot_id?: string;
+  provider?: string;
+  stationCode?: string;
+  ejectVerified?: boolean;
   waafiMessage?: string;
   waafiMsg?: string;
 };
@@ -98,6 +101,7 @@ export function PaymentProcessingPage() {
   );
   const [errorMessage, setErrorMessage] = useState("");
   const [waafiMessage, setWaafiMessage] = useState("");
+  const [successDetails, setSuccessDetails] = useState<ApiResponse | null>(null);
   const PAYMENT_REQUEST_TIMEOUT_MS = 280_000;
 
   const clearPaymentAbort = () => {
@@ -136,6 +140,7 @@ export function PaymentProcessingPage() {
       setStatusMessage("Hubinaya macluumaadka...");
       setErrorMessage("");
       setWaafiMessage("");
+      setSuccessDetails(null);
       let requestTimedOut = false;
 
       try {
@@ -181,9 +186,10 @@ export function PaymentProcessingPage() {
 
         if (paymentRes.ok && paymentData.success) {
           setStatus("success");
+          setSuccessDetails(paymentData);
           setWaafiMessage(
             paymentData.waafiMessage ||
-              "Codsigaagu wuu guuleystay. Fadlan qaado power bank-gaaga.",
+              "Lacag bixinta way guuleysatay, power bank-gana wuu soo baxay. Fadlan qaado.",
           );
           return;
         }
@@ -338,6 +344,28 @@ export function PaymentProcessingPage() {
             <p className="mt-3 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-700">
               {waafiMessage}
             </p>
+
+            <div className="mt-4 grid grid-cols-2 gap-3 text-left text-sm">
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">
+                  Battery
+                </p>
+                <p className="mt-1 font-mono font-bold text-emerald-900">
+                  {successDetails?.battery_id || "--"}
+                </p>
+              </div>
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">
+                  Slot
+                </p>
+                <p className="mt-1 font-mono font-bold text-emerald-900">
+                  {successDetails?.slot_id || "--"}
+                </p>
+              </div>
+              <div className="col-span-2 rounded-xl border border-violet-100 bg-violet-50 p-3 text-center font-semibold text-violet-700">
+                Payment received and eject command completed.
+              </div>
+            </div>
 
             <div className="mt-6">
               <Link
