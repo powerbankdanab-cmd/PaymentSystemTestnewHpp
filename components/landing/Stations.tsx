@@ -33,7 +33,7 @@ const STATIONS = [
   },
   {
     id: "20",
-    name: "Elite Hotel",
+    name: "Elite space",
     url: "https://station20.danab.site",
     area: "Mogadishu",
   },
@@ -51,7 +51,7 @@ const STATIONS = [
   },
   {
     id: "27",
-    name: "AppSphere 49000627",
+    name: "Elite private",
     url: "https://station27.danab.site",
     area: "Mogadishu",
   },

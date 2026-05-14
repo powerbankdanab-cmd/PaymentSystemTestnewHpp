@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { getRequiredEnv } from "@/lib/server/env";
 import {
   getStationConfigByDomain,
+  getStationRentalAmount,
 } from "@/lib/server/station-config";
 import type {
   StationConfig,
@@ -55,6 +56,8 @@ export async function getActiveStationConfig(): Promise<StationConfig> {
       process.env.STATION_CABINET_SN ||
       process.env.STATION_DEVICE_UUID ||
       undefined,
+    rentalAmount:
+      Number(process.env.STATION_RENTAL_AMOUNT) || getStationRentalAmount(code),
   };
 }
 

@@ -27,10 +27,10 @@
 ---
 
 ### AppSphere / Besiter migrated stations
-- **Station 20 URL**: https://station20.danab.site - Elite Hotel - Cabinet SN `49000620`
+- **Station 20 URL**: https://station20.danab.site - Elite space - Cabinet SN `49000620` - Price `$1.00`
 - **Station 21 URL**: https://station21.danab.site - Karmel - Cabinet SN `49000621`
 - **Station 22 URL**: https://station22.danab.site - Milgo caffe - Cabinet SN `49000622`
-- **Station 27 URL**: https://station27.danab.site - Cabinet SN `49000627`
+- **Station 27 URL**: https://station27.danab.site - Elite private - Cabinet SN `49000627` - Price `$1.00`
 - **Station 34 URL**: https://station34.danab.site - Cabinet SN `49000634`
 ---
 
@@ -43,10 +43,10 @@
 | 03 | Java Taleex | https://station03.danab.site | WSEP161741066503 |
 | 04 | Delik Somalia | https://station04.danab.site | WSEP161741066504 |
 | 05 | Arena cafe Mogadishu | https://station05.danab.site | WSEP161741066505 |
-| 20 | Elite Hotel | https://station20.danab.site | 49000620 |
+| 20 | Elite space | https://station20.danab.site | 49000620 |
 | 21 | Karmel | https://station21.danab.site | 49000621 |
 | 22 | Milgo caffe | https://station22.danab.site | 49000622 |
-| 27 | AppSphere 49000627 | https://station27.danab.site | 49000627 |
+| 27 | Elite private | https://station27.danab.site | 49000627 |
 | 34 | AppSphere 49000634 | https://station34.danab.site | 49000634 |
 
 ---

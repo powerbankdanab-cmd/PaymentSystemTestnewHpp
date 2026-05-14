@@ -4,7 +4,10 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
-import { PAYMENT_METHODS } from "@/components/payment/constants";
+import {
+  DEFAULT_RENTAL_AMOUNT,
+  PAYMENT_METHODS,
+} from "@/components/payment/constants";
 import { CheckIcon, CloseIcon } from "@/components/payment/Icons";
 import {
   cn,
@@ -16,6 +19,7 @@ import {
   PaymentStatus,
   ProcessingStep,
 } from "@/components/payment/types";
+import { getStationRentalAmount } from "@/lib/client/station";
 
 type ApiResponse = {
   success?: boolean;
@@ -80,12 +84,10 @@ export function PaymentProcessingPage() {
   );
 
   const amount = useMemo(() => {
-    const raw = Number(searchParams.get("amount"));
-    if (!Number.isFinite(raw) || raw <= 0) {
-      return 0.5;
-    }
-
-    return raw;
+    const stationAmount = getStationRentalAmount();
+    return Number.isFinite(stationAmount) && stationAmount > 0
+      ? stationAmount
+      : DEFAULT_RENTAL_AMOUNT;
   }, [searchParams]);
 
   const phoneNumber = useMemo(

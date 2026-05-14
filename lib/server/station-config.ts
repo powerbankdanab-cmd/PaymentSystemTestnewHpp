@@ -6,7 +6,10 @@ export type StationConfig = {
   name: string;
   provider: StationProvider;
   cabinetSn?: string;
+  rentalAmount: number;
 };
+
+const DEFAULT_RENTAL_AMOUNT = 0.75;
 
 const STATION_NAMES: Record<string, string> = {
   "58": "Danab-Cafe Castello\nTaleex",
@@ -14,11 +17,16 @@ const STATION_NAMES: Record<string, string> = {
   "03": "Danab-Java\nTaleex",
   "04": "Danab-Delik\nSomalia",
   "05": "Danab-Arena Cafe\nMogadishu",
-  "20": "Elite Hotel\nDanab Powerbank",
+  "20": "Elite space\nDanab Powerbank",
   "21": "Karmel\nDanab Powerbank",
   "22": "Milgo caffe\nDanab Powerbank",
-  "27": "Danab Powerbank\nAppSphere 49000627",
+  "27": "Elite private\nDanab Powerbank",
   "34": "Danab Powerbank\nAppSphere 49000634",
+};
+
+const STATION_RENTAL_AMOUNTS: Record<string, number> = {
+  "20": 1,
+  "27": 1,
 };
 
 const DEFAULT_APPSPHERE_CABINETS: Record<string, string> = {
@@ -97,7 +105,19 @@ function buildStationConfig(code: string, name?: string): StationConfig {
     name: name || STATION_NAMES[code] || `Station ${code}`,
     provider,
     cabinetSn,
+    rentalAmount: getStationRentalAmount(code),
   };
+}
+
+export function getStationRentalAmount(code: string): number {
+  const normalizedCode = normalizeStationCode(code);
+  const configured = getStationEnv(normalizedCode, "RENTAL_AMOUNT");
+  const parsed = Number(configured);
+  if (Number.isFinite(parsed) && parsed > 0) {
+    return parsed;
+  }
+
+  return STATION_RENTAL_AMOUNTS[normalizedCode] || DEFAULT_RENTAL_AMOUNT;
 }
 
 export const STATION_CONFIGS: Record<string, StationConfig> = {
@@ -178,6 +198,9 @@ export function getStationConfigByDomain(
         process.env.STATION_CABINET_SN ||
         process.env.STATION_DEVICE_UUID ||
         undefined,
+      rentalAmount:
+        Number(process.env.STATION_RENTAL_AMOUNT) ||
+        getStationRentalAmount(fallbackCode),
     };
   }
 

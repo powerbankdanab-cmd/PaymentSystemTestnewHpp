@@ -113,7 +113,7 @@ export async function processPayment(
   input: PaymentInput,
 ): Promise<PaymentPayload> {
   const phoneNumber = input.phoneNumber.replace(/\D/g, "");
-  const { amount } = input;
+  let amount = Number(input.amount);
   const requestedStationCode = String(input.stationCode || "").replace(/\D/g, "");
   const jobId = await createPaymentJob({
     phoneNumber,
@@ -146,6 +146,28 @@ export async function processPayment(
 
     imei = stationConfig.imei;
     stationCode = stationConfig.code;
+
+    if (
+      Number.isFinite(stationConfig.rentalAmount) &&
+      stationConfig.rentalAmount > 0 &&
+      stationConfig.rentalAmount !== amount
+    ) {
+      const requestedAmount = amount;
+      amount = stationConfig.rentalAmount;
+      await updatePaymentJob({
+        jobId,
+        stage: "amount_normalized",
+        message: "Station rental amount applied",
+        patch: {
+          amount,
+          requestedAmount,
+        },
+        details: {
+          stationCode,
+          provider: stationConfig.provider,
+        },
+      });
+    }
 
     await updatePaymentJob({
       jobId,

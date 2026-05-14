@@ -1,8 +1,14 @@
 import { PaymentMethod, TimeOption } from "@/components/payment/types";
 
-export const TIME_OPTIONS: TimeOption[] = [
-  { label: "$0.75", amount: 0.75, icon: "clock" },
-];
+export const DEFAULT_RENTAL_AMOUNT = 0.75;
+
+export function buildTimeOptions(
+  amount = DEFAULT_RENTAL_AMOUNT,
+): TimeOption[] {
+  return [{ label: `$${amount.toFixed(2)}`, amount, icon: "clock" }];
+}
+
+export const TIME_OPTIONS: TimeOption[] = buildTimeOptions();
 
 export const PAYMENT_METHODS: PaymentMethod[] = ["EVC Plus", "ZAAD", "SAHAL"];
 

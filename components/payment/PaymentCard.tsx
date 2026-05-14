@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { AmountCard } from "@/components/payment/AmountCard";
 import {
+  buildTimeOptions,
+  DEFAULT_RENTAL_AMOUNT,
   PAYMENT_METHODS,
   PHONE_PLACEHOLDER_BY_METHOD,
-  TIME_OPTIONS,
 } from "@/components/payment/constants";
 import {
   cn,
@@ -21,9 +22,9 @@ import { PhoneInput } from "@/components/payment/PhoneInput";
 import { RulesAgreement } from "@/components/payment/RulesAgreement";
 import { TimeOptions } from "@/components/payment/TimeOptions";
 import { PaymentMethod } from "@/components/payment/types";
+import { getStationRentalAmount } from "@/lib/client/station";
 
 const PAYMENT_FLOW_RESET_KEY = "caste:payment-flow-reset-home-form";
-const DEFAULT_AMOUNT = 0.75;
 const DEFAULT_METHOD: PaymentMethod = "EVC Plus";
 
 export function PaymentCard({
@@ -35,7 +36,8 @@ export function PaymentCard({
 }) {
   const router = useRouter();
 
-  const [selectedAmount, setSelectedAmount] = useState(DEFAULT_AMOUNT);
+  const [stationAmount, setStationAmount] = useState(DEFAULT_RENTAL_AMOUNT);
+  const [selectedAmount, setSelectedAmount] = useState(DEFAULT_RENTAL_AMOUNT);
   const [selectedMethod, setSelectedMethod] =
     useState<PaymentMethod>(DEFAULT_METHOD);
   const [phone, setPhone] = useState("");
@@ -44,18 +46,26 @@ export function PaymentCard({
   const [errors, setErrors] = useState<{ phone?: string; agreeRules?: string }>(
     {},
   );
+  const timeOptions = useMemo(
+    () => buildTimeOptions(stationAmount),
+    [stationAmount],
+  );
 
   useEffect(() => {
     router.prefetch("/payment");
 
     const resetForm = () => {
-      setSelectedAmount(DEFAULT_AMOUNT);
+      const nextAmount = getStationRentalAmount();
+      setStationAmount(nextAmount);
+      setSelectedAmount(nextAmount);
       setSelectedMethod(DEFAULT_METHOD);
       setPhone("");
       setAgreeRules(true);
       setErrors({});
       setIsSubmitting(false);
     };
+
+    resetForm();
 
     const maybeResetOnReturnFromPayment = () => {
       if (window.sessionStorage.getItem(PAYMENT_FLOW_RESET_KEY) === "1") {
@@ -64,6 +74,7 @@ export function PaymentCard({
         return;
       }
 
+      setStationAmount(getStationRentalAmount());
       setIsSubmitting(false);
     };
 
@@ -125,7 +136,7 @@ export function PaymentCard({
 
       <section className="rounded-3xl pb-6">
         <TimeOptions
-          options={TIME_OPTIONS}
+          options={timeOptions}
           selectedAmount={selectedAmount}
           onSelect={setSelectedAmount}
         />
