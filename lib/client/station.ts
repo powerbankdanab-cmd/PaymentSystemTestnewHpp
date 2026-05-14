@@ -8,7 +8,7 @@ const STATION_NAMES: Record<string, string> = {
   "21": "Karmel\nDanab Powerbank",
   "22": "Milgo caffe\nDanab Powerbank",
   "27": "Elite private\nDanab Powerbank",
-  "34": "Danab Powerbank\nAppSphere 49000634",
+  "34": "Crepe one\nDanab Powerbank",
 };
 
 export const DEFAULT_RENTAL_AMOUNT = 0.75;

@@ -31,7 +31,7 @@
 - **Station 21 URL**: https://station21.danab.site - Karmel - Cabinet SN `49000621`
 - **Station 22 URL**: https://station22.danab.site - Milgo caffe - Cabinet SN `49000622`
 - **Station 27 URL**: https://station27.danab.site - Elite private - Cabinet SN `49000627` - Price `$1.00`
-- **Station 34 URL**: https://station34.danab.site - Cabinet SN `49000634`
+- **Station 34 URL**: https://station34.danab.site - Crepe one - Cabinet SN `49000634`
 ---
 
 ## Quick Reference Table
@@ -47,7 +47,7 @@
 | 21 | Karmel | https://station21.danab.site | 49000621 |
 | 22 | Milgo caffe | https://station22.danab.site | 49000622 |
 | 27 | Elite private | https://station27.danab.site | 49000627 |
-| 34 | AppSphere 49000634 | https://station34.danab.site | 49000634 |
+| 34 | Crepe one | https://station34.danab.site | 49000634 |
 
 ---
 

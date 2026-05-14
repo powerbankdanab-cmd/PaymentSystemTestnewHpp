@@ -57,7 +57,7 @@ const STATIONS = [
   },
   {
     id: "34",
-    name: "AppSphere 49000634",
+    name: "Crepe one",
     url: "https://station34.danab.site",
     area: "Mogadishu",
   },
