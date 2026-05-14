@@ -30,6 +30,7 @@ import {
   extractWaafiAudit,
   extractWaafiIds,
   isWaafiApproved,
+  isWaafiTimeoutError,
   requestWaafiPurchase,
   reverseWaafiPurchase,
 } from "@/lib/server/payment/waafi";
@@ -823,23 +824,54 @@ export async function processPayment(
       isHttpError(error) &&
       error.status === 403 &&
       error.message.includes("blocked");
+    const waafiTimedOut = isWaafiTimeoutError(error);
 
     await updatePaymentJob({
       jobId,
-      status: paymentReversed
-        ? "reversed"
-        : paymentBlocked
-          ? "blocked"
-          : isHttpError(error) && error.status < 500
-            ? "failed"
-            : "needs_support",
-      stage: paymentReversed ? "reversed" : paymentBlocked ? "blocked" : "failed",
-      message: errorMessage(error),
+      status: waafiTimedOut
+        ? "needs_support"
+        : paymentReversed
+          ? "reversed"
+          : paymentBlocked
+            ? "blocked"
+            : isHttpError(error) && error.status < 500
+              ? "failed"
+              : "needs_support",
+      stage: waafiTimedOut
+        ? "waafi_timeout"
+        : paymentReversed
+          ? "reversed"
+          : paymentBlocked
+            ? "blocked"
+            : "failed",
+      message: waafiTimedOut
+        ? "Waafi did not confirm payment before the timeout"
+        : errorMessage(error),
       patch: {
-        errorStatus: isHttpError(error) ? error.status : 500,
+        errorStatus: waafiTimedOut ? 504 : isHttpError(error) ? error.status : 500,
         errorMessage: errorMessage(error),
+        ...(waafiTimedOut
+          ? {
+              waafiPending: true,
+              supportHint:
+                "Check Waafi merchant history. If money entered, eject/refund manually before resolving.",
+            }
+          : {}),
       },
     });
+
+    if (waafiTimedOut) {
+      throw new HttpError(
+        504,
+        "Waafi request timed out before payment confirmation",
+        {
+          jobId,
+          waafiPending: true,
+          supportHint:
+            "Check Waafi merchant history. If money entered, eject/refund manually before resolving.",
+        },
+      );
+    }
 
     if (isHttpError(error)) {
       throw new HttpError(

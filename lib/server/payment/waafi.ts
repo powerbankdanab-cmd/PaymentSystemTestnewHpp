@@ -1,11 +1,38 @@
-import { getRequiredEnv } from "@/lib/server/env";
+import { getOptionalEnv, getRequiredEnv } from "@/lib/server/env";
 
 import { parseResponseBody, toErrorMessage } from "@/lib/server/payment/http";
 import { WaafiResponse } from "@/lib/server/payment/types";
 
-const WAAFI_REQUEST_TIMEOUT_MS = 20_000;
+const DEFAULT_WAAFI_REQUEST_TIMEOUT_MS = 90_000;
+const MIN_WAAFI_REQUEST_TIMEOUT_MS = 30_000;
+const MAX_WAAFI_REQUEST_TIMEOUT_MS = 240_000;
 
 type WaafiServiceName = "API_PURCHASE" | "API_REVERSAL";
+
+export class WaafiTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`Waafi request timed out after ${Math.round(timeoutMs / 1000)} seconds`);
+    this.name = "WaafiTimeoutError";
+  }
+}
+
+function getWaafiRequestTimeoutMs() {
+  const raw = getOptionalEnv("WAAFI_REQUEST_TIMEOUT_MS");
+  const parsed = raw ? Number(raw) : DEFAULT_WAAFI_REQUEST_TIMEOUT_MS;
+
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_WAAFI_REQUEST_TIMEOUT_MS;
+  }
+
+  return Math.min(
+    MAX_WAAFI_REQUEST_TIMEOUT_MS,
+    Math.max(MIN_WAAFI_REQUEST_TIMEOUT_MS, parsed),
+  );
+}
+
+export function isWaafiTimeoutError(error: unknown) {
+  return error instanceof WaafiTimeoutError;
+}
 
 function normalizePhoneDigits(value: string) {
   const digits = value.replace(/\D/g, "");
@@ -49,9 +76,10 @@ async function requestWaafiAction({
   };
 
   const controller = new AbortController();
+  const timeoutMs = getWaafiRequestTimeoutMs();
   const timeout = setTimeout(() => {
     controller.abort();
-  }, WAAFI_REQUEST_TIMEOUT_MS);
+  }, timeoutMs);
 
   let response: Response;
   try {
@@ -66,7 +94,7 @@ async function requestWaafiAction({
     });
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
-      throw new Error("Waafi request timed out");
+      throw new WaafiTimeoutError(timeoutMs);
     }
 
     throw error;

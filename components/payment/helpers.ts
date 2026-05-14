@@ -67,6 +67,10 @@ export function mapBackendErrorMessage(message: string, waafiMsg?: string) {
     return "Lacag bixinta ma dhicin, fadlan hubi numberkaaga iyo haraagaaga";
   }
 
+  if (message.includes("Waafi request timed out")) {
+    return "Waafi wali jawaab kama bixin. Haddii lacag kaa baxday, fadlan ha isku dayin mar kale ee la xiriir support-ka Danab: 616586503.";
+  }
+
   if (message.includes("Payment was approved")) {
     return "Codsiga lama xaqiijin. Fadlan la xiriir support-ka Danab.";
   }

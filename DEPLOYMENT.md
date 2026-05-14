@@ -40,6 +40,7 @@ WAAFI_API_KEY=your_waafi_api_key_here
 WAAFI_API_USER_ID=your_waafi_api_user_id_here
 WAAFI_MERCHANT_UID=your_waafi_merchant_uid_here
 WAAFI_URL=https://api.waafipay.com/asm
+WAAFI_REQUEST_TIMEOUT_MS=90000
 ```
 
 #### HeyCharge
