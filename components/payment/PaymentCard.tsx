@@ -67,7 +67,11 @@ export function PaymentCard({
   const [agreeRules, setAgreeRules] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
-  const [paymentError, setPaymentError] = useState("");
+  const [paymentNotice, setPaymentNotice] = useState<{
+    tone: "error" | "info";
+    title: string;
+    message: string;
+  } | null>(null);
   const [errors, setErrors] = useState<{ phone?: string; agreeRules?: string }>(
     {},
   );
@@ -88,7 +92,7 @@ export function PaymentCard({
       setAgreeRules(true);
       setErrors({});
       setStatusMessage("");
-      setPaymentError("");
+      setPaymentNotice(null);
       setIsSubmitting(false);
     };
 
@@ -133,7 +137,7 @@ export function PaymentCard({
 
     const formErrors = validatePaymentInput(phone, agreeRules);
     setErrors(formErrors);
-    setPaymentError("");
+    setPaymentNotice(null);
 
     if (Object.keys(formErrors).length > 0) {
       return;
@@ -144,6 +148,11 @@ export function PaymentCard({
     setIsSubmitting(true);
     window.sessionStorage.setItem(PAYMENT_FLOW_RESET_KEY, "1");
     setStatusMessage("Hubinaya station-ka iyo battery-ga...");
+    setPaymentNotice({
+      tone: "info",
+      title: "Hubinaya station-ka",
+      message: "Waxaan hubinaynaa in station-ku online yahay iyo in baytari diyaar ah jiro.",
+    });
 
     try {
       const response = await fetch("/api/pay", {
@@ -163,6 +172,11 @@ export function PaymentCard({
         }
 
         setStatusMessage("Furaya bogga lacag bixinta Waafi...");
+        setPaymentNotice({
+          tone: "info",
+          title: "Furaya Waafi",
+          message: "Fadlan sug, waxaan kuu gudbineynaa bogga lacag bixinta.",
+        });
         window.location.assign(data.redirectUrl);
         return;
       }
@@ -186,11 +200,14 @@ export function PaymentCard({
     } catch (error) {
       window.sessionStorage.removeItem(PAYMENT_FLOW_RESET_KEY);
       setStatusMessage("");
-      setPaymentError(
-        error instanceof Error
-          ? error.message
-          : "Khalad dhacay, fadlan mar kale isku day",
-      );
+      setPaymentNotice({
+        tone: "error",
+        title: "Lama sii wadi karo",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Khalad dhacay, fadlan mar kale isku day",
+      });
       setIsSubmitting(false);
     }
   };
@@ -234,21 +251,49 @@ export function PaymentCard({
           error={errors.agreeRules}
         />
 
-        {(statusMessage || paymentError) && (
-          <div
-            className={cn(
-              "mx-3 mt-5 rounded-2xl border px-4 py-3 text-sm font-semibold sm:mx-4",
-              paymentError
-                ? "border-red-200 bg-red-50 text-red-700"
-                : "border-emerald-200 bg-emerald-50 text-emerald-700",
-            )}
-          >
-            {paymentError || statusMessage}
-          </div>
-        )}
-
         <PayButton loading={isSubmitting} onClick={handlePay} />
       </section>
+
+      {paymentNotice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-5 backdrop-blur-sm">
+          <div
+            className={cn(
+              "w-full max-w-sm rounded-3xl border bg-white p-6 text-center shadow-2xl",
+              paymentNotice.tone === "error"
+                ? "border-red-100 shadow-red-900/15"
+                : "border-emerald-100 shadow-emerald-900/15",
+            )}
+          >
+            <div
+              className={cn(
+                "mx-auto flex h-14 w-14 items-center justify-center rounded-full text-2xl font-black",
+                paymentNotice.tone === "error"
+                  ? "bg-red-50 text-red-600"
+                  : "bg-emerald-50 text-emerald-600",
+              )}
+            >
+              {paymentNotice.tone === "error" ? "!" : (
+                <span className="h-6 w-6 animate-spin rounded-full border-[3px] border-current border-t-transparent" />
+              )}
+            </div>
+            <h2 className="mt-4 text-2xl font-black text-slate-900">
+              {paymentNotice.title}
+            </h2>
+            <p className="mt-3 text-base font-semibold leading-7 text-slate-600">
+              {paymentNotice.message}
+            </p>
+            {paymentNotice.tone === "error" && (
+              <button
+                type="button"
+                onClick={() => setPaymentNotice(null)}
+                className="mt-6 w-full rounded-2xl bg-gradient-to-r from-violet-500 to-emerald-400 px-5 py-3 text-base font-bold text-white shadow-lg"
+              >
+                Waan fahmay
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       <footer
         className={cn(

@@ -33,15 +33,24 @@ export function validatePaymentInput(
 export function mapBackendErrorMessage(message: string, waafiMsg?: string) {
   const lowerMessage = message.toLowerCase();
 
+  if (
+    message.includes("Station is offline") ||
+    lowerMessage.includes("station offline") ||
+    lowerMessage.includes("station is offline") ||
+    lowerMessage.includes("offline or has no fresh report")
+  ) {
+    return "Station-ku hadda ma shaqeynayo. Fadlan isku day mar kale.";
+  }
+
   if (message.includes("No available battery")) {
-    return "Ma jiro baytari diyaar ah hadda. Station-ku waa la damiyay ama battery-gu way dhammaadeen.";
+    return "Ma jiro baytari diyaar ah hadda.";
   }
 
   if (
     message.includes("Station query timed out") ||
     message.includes("Failed to query station")
   ) {
-    return "Station-ku hadda ma shaqeynayo (offline). Fadlan isku day mar kale ama la xiriir: 616586503";
+    return "Station-ka lama heli karo hadda. Fadlan isku day mar kale.";
   }
 
   if (message.includes("already have an active rental")) {
