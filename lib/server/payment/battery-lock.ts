@@ -11,6 +11,37 @@ import { normalizeBatteryId } from "@/lib/server/payment/battery-id";
 const RESERVATION_TTL_MS = 2 * 60 * 1000;
 const PHONE_PAYMENT_LOCK_TTL_MS = 6 * 60 * 1000;
 
+type LockOptions = {
+  ttlMs?: number;
+  jobId?: string;
+};
+
+function normalizeTtlMs(value: number | undefined, fallback: number) {
+  if (!Number.isFinite(value) || !value || value <= 0) {
+    return fallback;
+  }
+
+  return Math.min(Math.max(value, 30_000), 30 * 60 * 1000);
+}
+
+function expiresAtFromNow(ttlMs: number) {
+  return Timestamp.fromMillis(Date.now() + ttlMs);
+}
+
+function isActiveLock(data: Record<string, unknown>, fallbackTtlMs: number) {
+  const expiresAt = data.expiresAt as Timestamp | undefined;
+  if (expiresAt instanceof Timestamp) {
+    return expiresAt.toMillis() > Date.now();
+  }
+
+  const createdAt = data.createdAt as Timestamp | undefined;
+  if (!(createdAt instanceof Timestamp)) {
+    return false;
+  }
+
+  return Date.now() - createdAt.toMillis() < fallbackTtlMs;
+}
+
 /**
  * Build a deterministic document ID for a battery reservation.
  * Using a deterministic ID means every battery has a single lock document.
@@ -37,8 +68,10 @@ export async function reserveBattery(
   imei: string,
   batteryId: string,
   phoneNumber: string,
+  options: LockOptions = {},
 ): Promise<boolean> {
   const db = getDb();
+  const ttlMs = normalizeTtlMs(options.ttlMs, RESERVATION_TTL_MS);
   const normalizedBatteryId = normalizeBatteryId(batteryId) || batteryId;
   const docRef = db
     .collection("battery_reservations")
@@ -50,10 +83,8 @@ export async function reserveBattery(
 
       if (snap.exists) {
         const data = snap.data()!;
-        const createdAt = data.createdAt as Timestamp;
-        const age = Date.now() - createdAt.toMillis();
 
-        if (age < RESERVATION_TTL_MS) {
+        if (isActiveLock(data, RESERVATION_TTL_MS)) {
           // Active reservation exists, so this battery is already taken.
           return false;
         }
@@ -64,7 +95,9 @@ export async function reserveBattery(
         imei,
         battery_id: normalizedBatteryId,
         phoneNumber,
+        ...(options.jobId ? { jobId: options.jobId } : {}),
         createdAt: Timestamp.now(),
+        expiresAt: expiresAtFromNow(ttlMs),
       });
 
       return true;
@@ -124,10 +157,23 @@ export async function getReservedBatteryIds(
   const ids = new Set<string>();
   for (const doc of snap.docs) {
     const data = doc.data();
-    const createdAt = data.createdAt as Timestamp;
-    const age = now - createdAt.toMillis();
 
-    if (age < RESERVATION_TTL_MS && data.battery_id) {
+    if (data.expiresAt instanceof Timestamp) {
+      if (data.expiresAt.toMillis() <= now) {
+        continue;
+      }
+    } else {
+      const createdAt = data.createdAt as Timestamp | undefined;
+      if (!(createdAt instanceof Timestamp)) {
+        continue;
+      }
+      const age = now - createdAt.toMillis();
+      if (age >= RESERVATION_TTL_MS) {
+        continue;
+      }
+    }
+
+    if (data.battery_id) {
       ids.add(normalizeBatteryId(data.battery_id));
     }
   }
@@ -140,8 +186,10 @@ export async function getReservedBatteryIds(
  */
 export async function acquirePhonePaymentLock(
   phoneNumber: string,
+  options: LockOptions = {},
 ): Promise<boolean> {
   const db = getDb();
+  const ttlMs = normalizeTtlMs(options.ttlMs, PHONE_PAYMENT_LOCK_TTL_MS);
   const docRef = db
     .collection("phone_payment_locks")
     .doc(phonePaymentLockDocId(phoneNumber));
@@ -152,17 +200,17 @@ export async function acquirePhonePaymentLock(
 
       if (snap.exists) {
         const data = snap.data()!;
-        const createdAt = data.createdAt as Timestamp;
-        const age = Date.now() - createdAt.toMillis();
 
-        if (age < PHONE_PAYMENT_LOCK_TTL_MS) {
+        if (isActiveLock(data, PHONE_PAYMENT_LOCK_TTL_MS)) {
           return false;
         }
       }
 
       tx.set(docRef, {
         phoneNumber,
+        ...(options.jobId ? { jobId: options.jobId } : {}),
         createdAt: Timestamp.now(),
+        expiresAt: expiresAtFromNow(ttlMs),
       });
 
       return true;

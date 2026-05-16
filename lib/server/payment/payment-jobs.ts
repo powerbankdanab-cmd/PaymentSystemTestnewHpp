@@ -1,13 +1,20 @@
-import { FieldValue, Timestamp } from "firebase-admin/firestore";
+import {
+  FieldValue,
+  Timestamp,
+  type DocumentSnapshot,
+} from "firebase-admin/firestore";
 
 import { getDb } from "@/lib/server/firebase-admin";
 
 export const PAYMENT_JOBS_COLLECTION = "payment_jobs";
 
-type PaymentJobStatus =
+export type PaymentJobStatus =
   | "started"
   | "blocked"
   | "reserved"
+  | "hpp_pending"
+  | "hpp_finalizing"
+  | "hpp_cancelled"
   | "charged"
   | "ejecting"
   | "verified_ejected"
@@ -15,6 +22,29 @@ type PaymentJobStatus =
   | "needs_support"
   | "completed"
   | "failed";
+
+export type PaymentJobRecord = {
+  id: string;
+  phoneNumber?: string;
+  amount?: number;
+  requestedStationCode?: string | null;
+  imei?: string;
+  stationCode?: string;
+  provider?: string;
+  batteryId?: string;
+  slotId?: string;
+  purchaseReferenceId?: string;
+  hppOrderId?: string;
+  hppUrl?: string;
+  transactionId?: string;
+  issuerTransactionId?: string | null;
+  referenceId?: string | null;
+  status?: PaymentJobStatus | string;
+  stage?: string;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+  [key: string]: unknown;
+};
 
 type PaymentJobEvent = {
   stage: string;
@@ -75,10 +105,12 @@ export async function createPaymentJob({
   phoneNumber,
   amount,
   requestedStationCode,
+  paymentMode,
 }: {
   phoneNumber: string;
   amount: number;
   requestedStationCode?: string | null;
+  paymentMode?: "direct" | "hpp";
 }) {
   const now = Timestamp.now();
   const ref = getDb().collection(PAYMENT_JOBS_COLLECTION).doc();
@@ -88,6 +120,7 @@ export async function createPaymentJob({
       phoneNumber,
       amount,
       requestedStationCode: requestedStationCode || null,
+      paymentMode: paymentMode || "direct",
       status: "started" satisfies PaymentJobStatus,
       stage: "started",
       createdAt: now,
@@ -101,6 +134,102 @@ export async function createPaymentJob({
   );
 
   return ref.id;
+}
+
+function paymentJobFromDoc(doc: DocumentSnapshot): PaymentJobRecord | null {
+  if (!doc.exists) {
+    return null;
+  }
+
+  return {
+    id: doc.id,
+    ...(doc.data() || {}),
+  } as PaymentJobRecord;
+}
+
+export async function getPaymentJob(
+  jobId: string,
+): Promise<PaymentJobRecord | null> {
+  const doc = await getDb()
+    .collection(PAYMENT_JOBS_COLLECTION)
+    .doc(jobId)
+    .get();
+
+  return paymentJobFromDoc(doc);
+}
+
+export async function getPaymentJobByReferenceId(
+  referenceId: string,
+): Promise<PaymentJobRecord | null> {
+  const snapshot = await getDb()
+    .collection(PAYMENT_JOBS_COLLECTION)
+    .where("purchaseReferenceId", "==", referenceId)
+    .limit(1)
+    .get();
+
+  return snapshot.empty ? null : paymentJobFromDoc(snapshot.docs[0]);
+}
+
+const TERMINAL_STATUSES = new Set<string>([
+  "blocked",
+  "hpp_cancelled",
+  "reversed",
+  "completed",
+  "failed",
+]);
+
+export async function beginPaymentJobFinalization(jobId: string) {
+  const db = getDb();
+  const ref = db.collection(PAYMENT_JOBS_COLLECTION).doc(jobId);
+
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const job = paymentJobFromDoc(snap);
+
+    if (!job) {
+      return { allowed: false, reason: "missing" as const, job: null };
+    }
+
+    const status = String(job.status || "");
+    if (TERMINAL_STATUSES.has(status)) {
+      return { allowed: false, reason: "terminal" as const, job };
+    }
+
+    if (status === "hpp_finalizing") {
+      const updatedAt = job.updatedAt;
+      const ageMs =
+        updatedAt instanceof Timestamp ? Date.now() - updatedAt.toMillis() : 0;
+      if (ageMs < 2 * 60_000) {
+        return { allowed: false, reason: "busy" as const, job };
+      }
+    }
+
+    tx.set(
+      ref,
+      cleanRecord({
+        status: "hpp_finalizing" satisfies PaymentJobStatus,
+        stage: "hpp_finalizing",
+        updatedAt: Timestamp.now(),
+        events: FieldValue.arrayUnion(
+          buildEvent(
+            "hpp_finalizing",
+            "HPP payment approved; finalizing eject and rental",
+          ),
+        ),
+      }),
+      { merge: true },
+    );
+
+    return {
+      allowed: true,
+      reason: "started" as const,
+      job: {
+        ...job,
+        status: "hpp_finalizing" satisfies PaymentJobStatus,
+        stage: "hpp_finalizing",
+      },
+    };
+  });
 }
 
 export async function updatePaymentJob({

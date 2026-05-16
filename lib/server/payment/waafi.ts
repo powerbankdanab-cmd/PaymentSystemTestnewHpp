@@ -7,7 +7,12 @@ const DEFAULT_WAAFI_REQUEST_TIMEOUT_MS = 90_000;
 const MIN_WAAFI_REQUEST_TIMEOUT_MS = 30_000;
 const MAX_WAAFI_REQUEST_TIMEOUT_MS = 240_000;
 
-type WaafiServiceName = "API_PURCHASE" | "API_REVERSAL";
+type WaafiServiceName =
+  | "API_PURCHASE"
+  | "API_REVERSAL"
+  | "HPP_PURCHASE"
+  | "HPP_REFUNDPURCHASE"
+  | "HPP_GETTRANINFO";
 
 export class WaafiTimeoutError extends Error {
   constructor(timeoutMs: number) {
@@ -44,7 +49,7 @@ function normalizePhoneDigits(value: string) {
   return digits;
 }
 
-function toWaafiAccountNumber(value: string) {
+export function toWaafiAccountNumber(value: string) {
   const digits = value.replace(/\D/g, "").replace(/^0+/, "");
 
   if (digits.startsWith("252")) {
@@ -57,9 +62,13 @@ function toWaafiAccountNumber(value: string) {
 async function requestWaafiAction({
   serviceName,
   serviceParams,
+  endpoint,
+  includeApiCredentials = true,
 }: {
   serviceName: WaafiServiceName;
   serviceParams: Record<string, unknown>;
+  endpoint?: string;
+  includeApiCredentials?: boolean;
 }) {
   const payload = {
     schemaVersion: "1.0",
@@ -69,8 +78,12 @@ async function requestWaafiAction({
     serviceName,
     serviceParams: {
       merchantUid: getRequiredEnv("WAAFI_MERCHANT_UID"),
-      apiUserId: getRequiredEnv("WAAFI_API_USER_ID"),
-      apiKey: getRequiredEnv("WAAFI_API_KEY"),
+      ...(includeApiCredentials
+        ? {
+            apiUserId: getRequiredEnv("WAAFI_API_USER_ID"),
+            apiKey: getRequiredEnv("WAAFI_API_KEY"),
+          }
+        : {}),
       ...serviceParams,
     },
   };
@@ -83,7 +96,7 @@ async function requestWaafiAction({
 
   let response: Response;
   try {
-    response = await fetch(getRequiredEnv("WAAFI_URL"), {
+    response = await fetch(endpoint || getRequiredEnv("WAAFI_URL"), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -152,6 +165,167 @@ export async function reverseWaafiPurchase({
   });
 }
 
+function getHppEndpoint() {
+  return getOptionalEnv("WAAFI_HPP_URL") || getRequiredEnv("WAAFI_URL");
+}
+
+function getHppStoreId() {
+  return (
+    getOptionalEnv("WAAFI_HPP_STORE_ID") ||
+    getOptionalEnv("WAAFI_STORE_ID") ||
+    getRequiredEnv("WAAFI_STORE_ID")
+  );
+}
+
+function getHppKey() {
+  return getOptionalEnv("WAAFI_HPP_KEY") || getRequiredEnv("WAAFI_HPP_KEY");
+}
+
+function normalizeHppReferenceId(value: string) {
+  const cleaned = value.replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 50);
+  if (!cleaned) {
+    throw new Error("HPP referenceId is empty after normalization");
+  }
+
+  return cleaned;
+}
+
+export function createWaafiHppReferenceId() {
+  const stamp = Date.now().toString(36);
+  const random = crypto.randomUUID().replace(/-/g, "").slice(0, 10);
+  return normalizeHppReferenceId(`DNB-${stamp}-${random}`);
+}
+
+export function isHppPaymentEnabled() {
+  const mode = String(getOptionalEnv("WAAFI_PAYMENT_MODE") || "")
+    .trim()
+    .toLowerCase();
+  const enabled = String(getOptionalEnv("WAAFI_HPP_ENABLED") || "")
+    .trim()
+    .toLowerCase();
+
+  return mode === "hpp" || ["1", "true", "yes", "on"].includes(enabled);
+}
+
+export async function requestWaafiHppPurchase({
+  phoneNumber,
+  amount,
+  referenceId,
+  successCallbackUrl,
+  failureCallbackUrl,
+  description,
+}: {
+  phoneNumber: string;
+  amount: number;
+  referenceId: string;
+  successCallbackUrl: string;
+  failureCallbackUrl: string;
+  description?: string;
+}) {
+  return requestWaafiAction({
+    endpoint: getHppEndpoint(),
+    includeApiCredentials: false,
+    serviceName: "HPP_PURCHASE",
+    serviceParams: {
+      storeId: getHppStoreId(),
+      hppKey: getHppKey(),
+      paymentMethod: "MWALLET_ACCOUNT",
+      hppSuccessCallbackUrl: successCallbackUrl,
+      hppFailureCallbackUrl: failureCallbackUrl,
+      hppRespDataFormat: 1,
+      payerInfo: { subscriptionId: toWaafiAccountNumber(phoneNumber) },
+      transactionInfo: {
+        referenceId: normalizeHppReferenceId(referenceId),
+        amount: Number(amount.toFixed(2)),
+        currency: "USD",
+        description: description || "Danab powerbank rental payment",
+      },
+    },
+  });
+}
+
+export async function getWaafiHppTransactionInfo({
+  referenceId,
+  transactionId,
+}: {
+  referenceId?: string;
+  transactionId?: string;
+}) {
+  if (!referenceId && !transactionId) {
+    throw new Error("Missing HPP referenceId or transactionId");
+  }
+
+  return requestWaafiAction({
+    endpoint: getHppEndpoint(),
+    includeApiCredentials: false,
+    serviceName: "HPP_GETTRANINFO",
+    serviceParams: {
+      storeId: getHppStoreId(),
+      hppKey: getHppKey(),
+      ...(referenceId ? { referenceId: normalizeHppReferenceId(referenceId) } : {}),
+      ...(transactionId ? { transactionId } : {}),
+    },
+  });
+}
+
+export async function refundWaafiHppPurchase({
+  referenceId,
+  transactionId,
+  amount,
+  description,
+}: {
+  referenceId?: string | null;
+  transactionId?: string | null;
+  amount: number;
+  description?: string;
+}) {
+  if (!referenceId && !transactionId) {
+    throw new Error("Missing HPP referenceId or transactionId for refund");
+  }
+
+  return requestWaafiAction({
+    endpoint: getHppEndpoint(),
+    includeApiCredentials: false,
+    serviceName: "HPP_REFUNDPURCHASE",
+    serviceParams: {
+      storeId: getHppStoreId(),
+      hppKey: getHppKey(),
+      amount: amount.toFixed(2),
+      ...(referenceId ? { referenceId: normalizeHppReferenceId(referenceId) } : {}),
+      ...(transactionId ? { transactionId } : {}),
+      description: description || "Danab powerbank rental payment refunded",
+    },
+  });
+}
+
+export function isWaafiHppApproved(waafiResponse: WaafiResponse) {
+  const responseCodeApproved =
+    waafiResponse.responseCode === "2001" || waafiResponse.responseCode === 2001;
+  const status = String(
+    waafiResponse.params?.status || waafiResponse.params?.state || "",
+  )
+    .trim()
+    .toUpperCase();
+
+  return responseCodeApproved && ["APPROVED", "SUCCESS", "PAID"].includes(status);
+}
+
+export function isWaafiHppRequestAccepted(waafiResponse: WaafiResponse) {
+  const responseCodeApproved =
+    waafiResponse.responseCode === "2001" || waafiResponse.responseCode === 2001;
+  return responseCodeApproved && Boolean(waafiResponse.params?.hppUrl);
+}
+
+export function extractWaafiHppIds(waafiResponse: WaafiResponse) {
+  return {
+    transactionId: waafiResponse.params?.transactionId || null,
+    issuerTransactionId: waafiResponse.params?.issuerTransactionId || null,
+    referenceId: waafiResponse.params?.referenceId || null,
+    orderId: waafiResponse.params?.orderId || null,
+    invoiceId: waafiResponse.params?.invoiceId || null,
+  };
+}
+
 export function isWaafiApproved(waafiResponse: WaafiResponse) {
   const responseCodeApproved =
     waafiResponse.responseCode === "2001" || waafiResponse.responseCode === 2001;
@@ -159,6 +333,10 @@ export function isWaafiApproved(waafiResponse: WaafiResponse) {
     String(waafiResponse.params?.state || "").trim().toUpperCase() === "APPROVED";
 
   return responseCodeApproved && stateApproved;
+}
+
+export function isWaafiResponseSuccessful(waafiResponse: WaafiResponse) {
+  return waafiResponse.responseCode === "2001" || waafiResponse.responseCode === 2001;
 }
 
 export function extractWaafiIds(waafiResponse: WaafiResponse) {

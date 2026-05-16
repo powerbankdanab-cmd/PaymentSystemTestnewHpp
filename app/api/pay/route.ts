@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { isHttpError, processPayment } from "@/lib/server/payment-service";
+import {
+  isHppPaymentEnabled,
+  isHttpError,
+  processPayment,
+  startHppPayment,
+} from "@/lib/server/payment-service";
 
 import { checkRateLimit } from "@/lib/server/rate-limit";
 
@@ -76,7 +81,10 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const result = await processPayment(parsed);
+    const requestOrigin = new URL(request.url).origin;
+    const result = isHppPaymentEnabled()
+      ? await startHppPayment({ ...parsed, requestOrigin })
+      : await processPayment(parsed);
 
     return NextResponse.json(result);
   } catch (error) {

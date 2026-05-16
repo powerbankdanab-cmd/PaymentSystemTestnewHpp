@@ -19,6 +19,20 @@ export type WaafiParams = {
   issuerTransactionId?: string;
   referenceId?: string;
   txAmount?: string;
+  amount?: string;
+  tranAmount?: string;
+  currency?: string;
+  description?: string;
+  payerId?: string;
+  paymentMethod?: string;
+  invoiceId?: string;
+  tranDate?: string;
+  tranStatusId?: string;
+  status?: string;
+  hppUrl?: string;
+  directPaymentLink?: string;
+  orderId?: string;
+  hppRequestId?: string;
 };
 
 export type WaafiResponse = {
@@ -35,6 +49,7 @@ export type PaymentInput = {
   phoneNumber: string;
   amount: number;
   stationCode?: string;
+  requestOrigin?: string;
 };
 
 export type PaymentSuccessPayload = {
@@ -57,4 +72,21 @@ export type PaymentDuplicatePayload = {
   jobId: string;
 };
 
-export type PaymentPayload = PaymentSuccessPayload | PaymentDuplicatePayload;
+export type PaymentHppStartPayload = {
+  success: false;
+  hppRequired: true;
+  redirectUrl: string;
+  referenceId: string;
+  jobId: string;
+  stationCode: string;
+  amount: number;
+  battery_id: string;
+  slot_id: string;
+  provider: string;
+  message: string;
+};
+
+export type PaymentPayload =
+  | PaymentSuccessPayload
+  | PaymentDuplicatePayload
+  | PaymentHppStartPayload;

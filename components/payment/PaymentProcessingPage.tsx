@@ -23,6 +23,10 @@ import { getStationRentalAmount } from "@/lib/client/station";
 
 type ApiResponse = {
   success?: boolean;
+  hppRequired?: boolean;
+  redirectUrl?: string;
+  referenceId?: string;
+  jobId?: string;
   error?: string;
   blacklisted?: boolean;
   battery_id?: string;
@@ -88,7 +92,7 @@ export function PaymentProcessingPage() {
     return Number.isFinite(stationAmount) && stationAmount > 0
       ? stationAmount
       : DEFAULT_RENTAL_AMOUNT;
-  }, [searchParams]);
+  }, []);
 
   const phoneNumber = useMemo(
     () => normalizePhone(searchParams.get("phone") || ""),
@@ -178,6 +182,18 @@ export function PaymentProcessingPage() {
         const paymentData = await safeReadJson(paymentRes);
 
         if (cancelled) return;
+
+        if (paymentRes.ok && paymentData.hppRequired) {
+          if (paymentData.redirectUrl) {
+            setStatusMessage("Furaya bogga lacag bixinta Waafi...");
+            window.location.assign(paymentData.redirectUrl);
+            return;
+          }
+
+          setStatus("failed");
+          setErrorMessage("Waafi payment page URL lama helin. Fadlan mar kale isku day.");
+          return;
+        }
 
         // Show unlock completion after the backend finishes.
         setProcessingStep("unlock");
