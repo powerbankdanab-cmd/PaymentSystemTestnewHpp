@@ -12,6 +12,7 @@ import {
 } from "@/components/payment/constants";
 import {
   cn,
+  mapBackendErrorMessage,
   normalizePhone,
   validatePaymentInput,
 } from "@/components/payment/helpers";
@@ -26,6 +27,28 @@ import { getStationRentalAmount } from "@/lib/client/station";
 
 const PAYMENT_FLOW_RESET_KEY = "caste:payment-flow-reset-home-form";
 const DEFAULT_METHOD: PaymentMethod = "EVC Plus";
+
+type PayResponse = {
+  success?: boolean;
+  hppRequired?: boolean;
+  redirectUrl?: string;
+  jobId?: string;
+  referenceId?: string;
+  error?: string;
+  waafiMsg?: string;
+  waafiMessage?: string;
+  battery_id?: string;
+  slot_id?: string;
+  stationCode?: string;
+};
+
+async function safeReadJson(response: Response): Promise<PayResponse> {
+  try {
+    return (await response.json()) as PayResponse;
+  } catch {
+    return {};
+  }
+}
 
 export function PaymentCard({
   darkMode,
@@ -43,6 +66,8 @@ export function PaymentCard({
   const [phone, setPhone] = useState("");
   const [agreeRules, setAgreeRules] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [statusMessage, setStatusMessage] = useState("");
+  const [paymentError, setPaymentError] = useState("");
   const [errors, setErrors] = useState<{ phone?: string; agreeRules?: string }>(
     {},
   );
@@ -62,6 +87,8 @@ export function PaymentCard({
       setPhone("");
       setAgreeRules(true);
       setErrors({});
+      setStatusMessage("");
+      setPaymentError("");
       setIsSubmitting(false);
     };
 
@@ -75,6 +102,7 @@ export function PaymentCard({
       }
 
       setStationAmount(getStationRentalAmount());
+      setStatusMessage("");
       setIsSubmitting(false);
     };
 
@@ -98,13 +126,14 @@ export function PaymentCard({
     };
   }, [router]);
 
-  const handlePay = () => {
+  const handlePay = async () => {
     if (isSubmitting) {
       return;
     }
 
     const formErrors = validatePaymentInput(phone, agreeRules);
     setErrors(formErrors);
+    setPaymentError("");
 
     if (Object.keys(formErrors).length > 0) {
       return;
@@ -114,13 +143,56 @@ export function PaymentCard({
 
     setIsSubmitting(true);
     window.sessionStorage.setItem(PAYMENT_FLOW_RESET_KEY, "1");
-    const params = new URLSearchParams({
-      phone: cleanPhone,
-      amount: String(selectedAmount),
-      method: selectedMethod,
-    });
+    setStatusMessage("Hubinaya station-ka iyo battery-ga...");
 
-    router.push(`/payment?${params.toString()}`);
+    try {
+      const response = await fetch("/api/pay", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phoneNumber: cleanPhone,
+          amount: selectedAmount,
+          method: selectedMethod,
+        }),
+      });
+      const data = await safeReadJson(response);
+
+      if (response.ok && data.hppRequired) {
+        if (!data.redirectUrl) {
+          throw new Error("Waafi payment page URL lama helin. Fadlan mar kale isku day.");
+        }
+
+        setStatusMessage("Furaya bogga lacag bixinta Waafi...");
+        window.location.assign(data.redirectUrl);
+        return;
+      }
+
+      if (response.ok && data.success) {
+        const params = new URLSearchParams({ status: "success" });
+        if (data.battery_id) params.set("battery", data.battery_id);
+        if (data.slot_id) params.set("slot", data.slot_id);
+        if (data.stationCode) params.set("station", data.stationCode);
+        if (data.jobId) params.set("jobId", data.jobId);
+        router.push(`/payment/result?${params.toString()}`);
+        return;
+      }
+
+      throw new Error(
+        mapBackendErrorMessage(
+          data.error || "Khalad dhacay, fadlan mar kale isku day",
+          data.waafiMsg,
+        ),
+      );
+    } catch (error) {
+      window.sessionStorage.removeItem(PAYMENT_FLOW_RESET_KEY);
+      setStatusMessage("");
+      setPaymentError(
+        error instanceof Error
+          ? error.message
+          : "Khalad dhacay, fadlan mar kale isku day",
+      );
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -161,6 +233,19 @@ export function PaymentCard({
           onToggle={() => setAgreeRules((prev) => !prev)}
           error={errors.agreeRules}
         />
+
+        {(statusMessage || paymentError) && (
+          <div
+            className={cn(
+              "mx-3 mt-5 rounded-2xl border px-4 py-3 text-sm font-semibold sm:mx-4",
+              paymentError
+                ? "border-red-200 bg-red-50 text-red-700"
+                : "border-emerald-200 bg-emerald-50 text-emerald-700",
+            )}
+          >
+            {paymentError || statusMessage}
+          </div>
+        )}
 
         <PayButton loading={isSubmitting} onClick={handlePay} />
       </section>
