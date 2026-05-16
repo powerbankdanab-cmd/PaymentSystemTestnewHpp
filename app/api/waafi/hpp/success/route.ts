@@ -58,11 +58,6 @@ function firstParam(params: URLSearchParams, names: string[]) {
 }
 
 function getPublicBaseUrl(request: NextRequest) {
-  const configured = getOptionalEnv("WAAFI_HPP_CALLBACK_BASE_URL");
-  if (configured) {
-    return configured.replace(/\/+$/, "");
-  }
-
   const forwardedProto =
     request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() ||
     request.nextUrl.protocol.replace(":", "") ||
@@ -72,7 +67,17 @@ function getPublicBaseUrl(request: NextRequest) {
     request.headers.get("host") ||
     request.nextUrl.host;
 
-  return `${forwardedProto}://${forwardedHost}`;
+  const publicOrigin = `${forwardedProto}://${forwardedHost}`.replace(/\/+$/, "");
+  if (!/\/\/(?:localhost|127\.0\.0\.1)(?::|$)/i.test(publicOrigin)) {
+    return publicOrigin;
+  }
+
+  const configured = getOptionalEnv("WAAFI_HPP_CALLBACK_BASE_URL");
+  if (configured) {
+    return configured.replace(/\/+$/, "");
+  }
+
+  return publicOrigin;
 }
 
 function resultRedirect(

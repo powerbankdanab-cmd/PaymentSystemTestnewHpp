@@ -43,6 +43,21 @@ function parseAndValidateBody(body: PaymentRequestBody) {
 
 export const maxDuration = 300;
 
+function getRequestOrigin(request: NextRequest) {
+  const forwardedProto =
+    request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() || "";
+  const forwardedHost =
+    request.headers.get("x-forwarded-host")?.split(",")[0]?.trim() || "";
+  const host = forwardedHost || request.headers.get("host") || "";
+
+  if (host) {
+    const proto = forwardedProto || new URL(request.url).protocol.replace(":", "");
+    return `${proto}://${host}`;
+  }
+
+  return new URL(request.url).origin;
+}
+
 export async function POST(request: NextRequest) {
   const clientIp = getClientIp(request);
 
@@ -81,7 +96,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const requestOrigin = new URL(request.url).origin;
+    const requestOrigin = getRequestOrigin(request);
     const result = isHppPaymentEnabled()
       ? await startHppPayment({ ...parsed, requestOrigin })
       : await processPayment(parsed);

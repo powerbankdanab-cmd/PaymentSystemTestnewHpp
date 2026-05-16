@@ -56,10 +56,10 @@ function getHppSessionTtlMs() {
 
 function getHppCallbackBaseUrl(requestOrigin?: string) {
   const configured =
+    requestOrigin ||
     process.env.WAAFI_HPP_CALLBACK_BASE_URL ||
     process.env.NEXT_PUBLIC_APP_URL ||
-    process.env.APP_URL ||
-    requestOrigin;
+    process.env.APP_URL;
 
   if (!configured) {
     throw new Error(
