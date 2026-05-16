@@ -44,6 +44,8 @@ import {
 const DEFAULT_HPP_SESSION_TTL_MS = 15 * 60 * 1000;
 const MIN_HPP_SESSION_TTL_MS = 2 * 60 * 1000;
 const MAX_HPP_SESSION_TTL_MS = 30 * 60 * 1000;
+const FINALIZATION_WAIT_MS = 75_000;
+const FINALIZATION_POLL_MS = 1_500;
 
 function getHppSessionTtlMs() {
   const parsed = Number(process.env.WAAFI_HPP_SESSION_TTL_MS || "");
@@ -90,6 +92,10 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function mergeJobIdIntoDetails(details: unknown, jobId: string) {
   if (details && typeof details === "object" && !Array.isArray(details)) {
     return {
@@ -126,6 +132,49 @@ function completedPayloadFromJob(job: PaymentJobRecord): PaymentSuccessPayload {
       "Lacag bixinta way guuleysatay, power bank-gana wuu soo baxay. Fadlan qaado.",
     waafiResponse: {},
   };
+}
+
+function isFinalizationInProgress(status: string) {
+  return ["hpp_finalizing", "charged", "ejecting", "verified_ejected"].includes(
+    status,
+  );
+}
+
+async function waitForExistingFinalization(
+  jobId: string,
+): Promise<PaymentSuccessPayload> {
+  const deadline = Date.now() + FINALIZATION_WAIT_MS;
+
+  while (Date.now() < deadline) {
+    const latest = await getPaymentJob(jobId);
+    const status = String(latest?.status || "");
+
+    if (latest?.status === "completed") {
+      return completedPayloadFromJob(latest);
+    }
+
+    if (
+      latest &&
+      !isFinalizationInProgress(status) &&
+      ["blocked", "hpp_cancelled", "reversed", "failed", "needs_support"].includes(
+        status,
+      )
+    ) {
+      throw new HttpError(
+        status === "reversed" ? 409 : 400,
+        String(latest.message || latest.stage || "Payment could not be completed"),
+        { jobId: latest.id, status },
+      );
+    }
+
+    await delay(FINALIZATION_POLL_MS);
+  }
+
+  throw new HttpError(
+    202,
+    "Payment is still being completed. Please wait a moment.",
+    { jobId, pending: true },
+  );
 }
 
 function getHppStatus(response: WaafiResponse) {
@@ -496,6 +545,10 @@ export async function completeHppPayment({
   if (!finalization.allowed) {
     if (finalization.reason === "terminal" && finalization.job?.status === "completed") {
       return completedPayloadFromJob(finalization.job);
+    }
+
+    if (finalization.reason === "busy") {
+      return waitForExistingFinalization(job.id);
     }
 
     throw new HttpError(409, "Payment is already being finalized", {

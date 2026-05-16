@@ -28,6 +28,16 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(result);
   } catch (error) {
+    if (isHttpError(error) && error.status === 202) {
+      return NextResponse.json(
+        {
+          pending: true,
+          error: error.message,
+        },
+        { status: 202 },
+      );
+    }
+
     return NextResponse.json(
       {
         error:

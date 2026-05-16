@@ -118,6 +118,15 @@ async function handleReturn(request: NextRequest) {
       station: result.stationCode,
     });
   } catch (error) {
+    if (isHttpError(error) && error.status === 202) {
+      return resultRedirect(request, {
+        status: "pending",
+        jobId,
+        referenceId,
+        message: error.message,
+      });
+    }
+
     return resultRedirect(request, {
       status: "failed",
       jobId,

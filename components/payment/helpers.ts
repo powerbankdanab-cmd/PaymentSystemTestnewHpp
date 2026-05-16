@@ -61,6 +61,13 @@ export function mapBackendErrorMessage(message: string, waafiMsg?: string) {
     return "Lacag bixinta number-kan horey ayay u socotaa. Fadlan sug wax yar oo hubi natiijada codsigii hore.";
   }
 
+  if (
+    message.includes("already being finalized") ||
+    message.includes("still being completed")
+  ) {
+    return "Lacag bixinta waa la dhameystirayaa. Fadlan sug wax yar.";
+  }
+
   if (message.includes("battery is already rented")) {
     return "Battery-gan waa la kireystay, fadlan mar kale isku day";
   }

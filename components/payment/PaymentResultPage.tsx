@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { CheckIcon, CloseIcon } from "@/components/payment/Icons";
@@ -9,22 +9,91 @@ import { cn, mapBackendErrorMessage } from "@/components/payment/helpers";
 
 export function PaymentResultPage() {
   const searchParams = useSearchParams();
-  const status = searchParams.get("status") || "failed";
-  const message = searchParams.get("message") || "";
-  const battery = searchParams.get("battery") || "";
-  const slot = searchParams.get("slot") || "";
-  const station = searchParams.get("station") || "";
+  const [result, setResult] = useState({
+    status: searchParams.get("status") || "failed",
+    message: searchParams.get("message") || "",
+    battery: searchParams.get("battery") || "",
+    slot: searchParams.get("slot") || "",
+    station: searchParams.get("station") || "",
+  });
+  const jobId = searchParams.get("jobId") || "";
+  const referenceId = searchParams.get("referenceId") || "";
 
-  const isSuccess = status === "success";
+  const isSuccess = result.status === "success";
+  const isPending = result.status === "pending";
   const friendlyMessage = useMemo(() => {
     if (isSuccess) {
       return "Lacag bixinta way guuleysatay, power bank-gana wuu soo baxay. Fadlan qaado.";
     }
 
+    if (isPending) {
+      return "Lacag bixinta waa la dhameystirayaa. Fadlan sug, natiijada ayaan hubinaynaa.";
+    }
+
     return mapBackendErrorMessage(
-      message || "Payment was not completed. Please try again.",
+      result.message || "Payment was not completed. Please try again.",
     );
-  }, [isSuccess, message]);
+  }, [isSuccess, isPending, result.message]);
+
+  useEffect(() => {
+    if (!isPending || (!jobId && !referenceId)) {
+      return;
+    }
+
+    let cancelled = false;
+    let attempts = 0;
+
+    const checkStatus = async () => {
+      attempts += 1;
+      const params = new URLSearchParams();
+      if (jobId) params.set("jobId", jobId);
+      if (referenceId) params.set("referenceId", referenceId);
+
+      try {
+        const response = await fetch(`/api/waafi/hpp/status?${params.toString()}`, {
+          cache: "no-store",
+        });
+        const data = await response.json().catch(() => ({}));
+
+        if (cancelled) return;
+
+        if (response.ok && data.success) {
+          setResult({
+            status: "success",
+            message: "",
+            battery: data.battery_id || "",
+            slot: data.slot_id || "",
+            station: data.stationCode || "",
+          });
+          return;
+        }
+
+        if (response.status !== 202 && attempts >= 3) {
+          setResult((current) => ({
+            ...current,
+            status: "failed",
+            message: data.error || "Payment was not completed. Please try again.",
+          }));
+        }
+      } catch {
+        if (!cancelled && attempts >= 5) {
+          setResult((current) => ({
+            ...current,
+            status: "failed",
+            message: "Payment status could not be checked. Please contact support.",
+          }));
+        }
+      }
+    };
+
+    const interval = window.setInterval(checkStatus, 3000);
+    checkStatus();
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [isPending, jobId, referenceId]);
 
   return (
     <div
@@ -42,11 +111,13 @@ export function PaymentResultPage() {
         <div
           className={cn(
             "mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full",
-            isSuccess ? "bg-green-100" : "bg-red-100",
+            isSuccess ? "bg-green-100" : isPending ? "bg-blue-100" : "bg-red-100",
           )}
         >
           {isSuccess ? (
             <CheckIcon className="h-9 w-9 text-green-600" />
+          ) : isPending ? (
+            <span className="h-8 w-8 animate-spin rounded-full border-[3px] border-blue-600 border-t-transparent" />
           ) : (
             <CloseIcon className="h-9 w-9 text-red-600" />
           )}
@@ -55,16 +126,22 @@ export function PaymentResultPage() {
         <h1
           className={cn(
             "text-3xl font-bold",
-            isSuccess ? "text-green-700" : "text-red-700",
+            isSuccess ? "text-green-700" : isPending ? "text-blue-700" : "text-red-700",
           )}
         >
-          {isSuccess ? "Guul!" : "Lacag bixinta ma dhicin"}
+          {isSuccess
+            ? "Guul!"
+            : isPending
+              ? "Fadlan sug"
+              : "Lacag bixinta ma dhicin"}
         </h1>
         <p
           className={cn(
             "mt-4 rounded-xl border p-4 text-sm leading-6",
             isSuccess
               ? "border-green-200 bg-green-50 text-green-700"
+              : isPending
+                ? "border-blue-200 bg-blue-50 text-blue-700"
               : "border-red-200 bg-red-50 text-red-700",
           )}
         >
@@ -78,7 +155,7 @@ export function PaymentResultPage() {
                 Battery
               </p>
               <p className="mt-1 font-mono font-bold text-emerald-900">
-                {battery || "--"}
+                {result.battery || "--"}
               </p>
             </div>
             <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-3">
@@ -86,23 +163,25 @@ export function PaymentResultPage() {
                 Slot
               </p>
               <p className="mt-1 font-mono font-bold text-emerald-900">
-                {slot || "--"}
+                {result.slot || "--"}
               </p>
             </div>
             <div className="col-span-2 rounded-xl border border-violet-100 bg-violet-50 p-3 text-center font-semibold text-violet-700">
-              Station {station || "--"}
+              Station {result.station || "--"}
             </div>
           </div>
         )}
 
-        <div className="mt-7">
+        {!isPending && (
+          <div className="mt-7">
           <Link
             href="/"
             className="inline-flex items-center justify-center rounded-xl bg-gradient-to-r from-violet-500 to-emerald-400 px-6 py-3 text-base font-bold text-white shadow-lg"
           >
             {isSuccess ? "Samee lacag-bixin kale" : "Dib u isku day"}
           </Link>
-        </div>
+          </div>
+        )}
       </main>
     </div>
   );

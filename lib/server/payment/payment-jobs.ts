@@ -178,6 +178,13 @@ const TERMINAL_STATUSES = new Set<string>([
   "failed",
 ]);
 
+const FINALIZATION_IN_PROGRESS_STATUSES = new Set<string>([
+  "hpp_finalizing",
+  "charged",
+  "ejecting",
+  "verified_ejected",
+]);
+
 export async function beginPaymentJobFinalization(jobId: string) {
   const db = getDb();
   const ref = db.collection(PAYMENT_JOBS_COLLECTION).doc(jobId);
@@ -195,11 +202,11 @@ export async function beginPaymentJobFinalization(jobId: string) {
       return { allowed: false, reason: "terminal" as const, job };
     }
 
-    if (status === "hpp_finalizing") {
+    if (FINALIZATION_IN_PROGRESS_STATUSES.has(status)) {
       const updatedAt = job.updatedAt;
       const ageMs =
         updatedAt instanceof Timestamp ? Date.now() - updatedAt.toMillis() : 0;
-      if (ageMs < 2 * 60_000) {
+      if (ageMs < 10 * 60_000) {
         return { allowed: false, reason: "busy" as const, job };
       }
     }
